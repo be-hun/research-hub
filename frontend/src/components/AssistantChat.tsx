@@ -16,7 +16,7 @@ interface Message {
 const SUGGESTIONS = [
   "Who at Temple studies Alzheimer's disease, and what are they funded to do?",
   "What research on opioid addiction is happening across Temple colleges?",
-  "Which engineering awards work on batteries or energy storage?",
+  "Are any clinical trials at Temple studying heart failure, and who sponsors them?",
 ];
 
 export default function AssistantChat() {

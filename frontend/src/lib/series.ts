@@ -5,7 +5,7 @@ import type { YearStat } from "./types";
 export const FUNDER_SERIES: Series[] = [
   { key: "nih", label: "NIH", color: "#A41E35" },
   { key: "nsf", label: "NSF", color: "#1E6FB8" },
-  { key: "other", label: "Other federal (CDC, AHRQ)", color: "#EDA100" },
+  { key: "other", label: "Other federal agencies", color: "#EDA100" },
 ];
 
 export function trendData(trend: YearStat[]): { data: YearDatum[]; series: Series[] } {

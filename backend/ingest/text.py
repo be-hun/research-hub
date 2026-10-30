@@ -1,6 +1,7 @@
 """Text clean-up shared by every source."""
 
 import re
+import unicodedata
 
 SMALL_WORDS = {"of", "and", "the", "for", "in", "on", "to", "a"}
 HEADER = re.compile(
@@ -57,7 +58,8 @@ def first_sentences(text: str, max_len: int = 320) -> str:
 
 
 def name_key(name: str) -> str:
-    """Identity key for matching one person across sources: first and last name, letters only."""
-    parts = [re.sub(r"[^a-z]", "", p) for p in name.lower().split()]
+    """Identity key for matching one person across sources: first and last name, letters only, accents removed."""
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    parts = [re.sub(r"[^a-z]", "", p) for p in plain.lower().split()]
     parts = [p for p in parts if p]
     return f"{parts[0]} {parts[-1]}" if parts else ""

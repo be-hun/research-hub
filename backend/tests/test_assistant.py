@@ -51,7 +51,7 @@ def test_answer_keeps_only_real_citations(client, fake_model):
     assert body["reply"] == "Proteostasis work in Down syndrome [1]."
     assert [(s["n"], s["id"]) for s in body["sources"]] == [(1, "nih-R01AG000001")]
     sent = calls[0][-1]["content"]
-    assert '<record number="1" id="nih-R01AG000001">' in sent and "Domenico Pratico (Contact PI)" in sent
+    assert '<record number="1" id="nih-R01AG000001" kind="award">' in sent and "Domenico Pratico (Contact PI)" in sent
 
 
 def test_answer_without_valid_citations_is_rejected(client, fake_model):

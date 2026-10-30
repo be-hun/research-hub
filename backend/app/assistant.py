@@ -15,14 +15,17 @@ UNGROUNDED = (
 )
 
 SYSTEM = """You answer questions about research at Temple University using only the numbered records \
-provided in the latest user message. The records are public federal award data from NIH RePORTER \
-and NSF Award Search.
+provided in the latest user message. Each record is one of: a grant (NIH, NSF or another federal agency), \
+a clinical trial (ClinicalTrials.gov) or a funded publication (OpenAlex).
 
 Rules:
 - Use only facts stated in the records. Never add projects, people, dates, amounts or findings that are not in them.
 - Cite every factual sentence with the record number in square brackets, like [2]. List every number you cite in cited_records.
-- An award record is funding history. It does not show that a study is active, recruiting, or taking students. \
-If asked about joining a project, say the records don't show that and suggest contacting the investigator.
+- Say which kind of record you are citing when it matters (a grant, a trial, a paper).
+- A grant record is funding history. It does not show that a study is active, recruiting, or taking students. \
+A trial's status comes from the registry and may be out of date; suggest contacting the study team listed there.
+- Funding types (industry, foundation, federal...) are inferred from funder names; say "listed funders" rather \
+than stating them as certain.
 - If the records don't answer the question, set answerable to false and say briefly what the records do cover.
 - Write plain text in a few short paragraphs. No markdown headings."""
 
@@ -36,8 +39,10 @@ def _retrieve(conn: sqlite3.Connection, messages: list[models.ChatMessage]) -> l
     ids = [h.id for h in hits]
     rows = conn.execute(f"""
         SELECT p.*, group_concat(DISTINCT c.college) AS colleges,
-               (SELECT group_concat(t.name || ' (' || t.role || ')', '; ')
-                  FROM project_team t WHERE t.project_id = p.id) AS team
+               (SELECT group_concat(name || ' (' || role || ')', '; ') FROM
+                  (SELECT name, role FROM project_team t WHERE t.project_id = p.id ORDER BY position LIMIT 8)) AS team,
+               (SELECT group_concat(name || ' [' || category || ']', '; ')
+                  FROM project_funders f WHERE f.project_id = p.id) AS funders
         FROM projects p LEFT JOIN project_colleges c ON c.project_id = p.id
         WHERE p.id IN ({','.join('?' * len(ids))}) GROUP BY p.id
     """, ids).fetchall()
@@ -47,13 +52,25 @@ def _retrieve(conn: sqlite3.Connection, messages: list[models.ChatMessage]) -> l
 
 def _format_record(n: int, r: sqlite3.Row) -> str:
     abstract = r["abstract"].replace("\n\n", " ") or r["summary"]
+    kind = r["kind"]
+    if kind == "trial":
+        detail = (f"Clinical trial {r['award_number']}, status: {r['status_label']} (per {r['source_label']}), "
+                  f"{r['start_year']}-{r['end_year']}, {r['activity_code'] or 'phase not listed'}")
+        people = "Study officials"
+    elif kind == "publication":
+        detail = f"Publication in {r['activity_code'] or 'a journal'}, {r['start_year']}, DOI {r['award_number']}"
+        people = "Temple authors"
+    else:
+        detail = (f"Grant {r['award_number']} from {r['admin_ic_name'] or r['agency']}, {r['start_year']}-{r['end_year']}, "
+                  f"{'active' if r['is_active'] else 'not active'} per {r['source_label']}")
+        people = "Investigators"
     return "\n".join([
-        f'<record number="{n}" id="{r["id"]}">',
+        f'<record number="{n}" id="{r["id"]}" kind="{kind}">',
         f"Title: {r['title']}",
-        f"Investigators: {r['team'] or 'not listed'}",
+        detail,
+        f"{people}: {r['team'] or 'not listed'}",
+        f"Listed funders [type]: {r['funders'] or 'not listed'}",
         f"Department: {r['department'] or 'not listed'}; college: {r['colleges'] or 'not listed'}",
-        f"Funding: {r['funder']} from {r['admin_ic_name'] or r['agency']}, award {r['award_number']}, "
-        f"{r['start_year']}-{r['end_year']}, {'active' if r['is_active'] else 'not active'} per {r['source_label']}",
         f"Abstract: {abstract}",
         "</record>",
     ])

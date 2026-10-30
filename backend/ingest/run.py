@@ -1,11 +1,12 @@
 """Import Temple awards from every source into the database.
 
-    uv run python -m ingest.run                    # fetch NIH and NSF, then load
+    uv run python -m ingest.run                    # fetch every source, then load
     uv run python -m ingest.run --offline          # reload from the cached raw JSON, no API calls
-    uv run python -m ingest.run --years 2024-2026  # NIH fiscal years; NSF awards running since the first year
+    uv run python -m ingest.run --years 2024-2026  # NIH fiscal years; other sources start at the first year
 
-Every imported record is a 'public-award-record': funding history, not proof that a
-study is active or recruiting.
+Sources: NIH RePORTER and NSF Award Search (grants), USAspending.gov (other federal grants),
+ClinicalTrials.gov (trials sponsored by or run at Temple) and OpenAlex (funded publications).
+Award records are funding history, not proof that a study is active or recruiting.
 """
 
 import argparse
@@ -15,7 +16,7 @@ from datetime import datetime, timezone
 
 from app import config
 from app.db import connect, init_schema
-from ingest import nih_reporter, nsf_awards
+from ingest import clinical_trials, nih_reporter, nsf_awards, openalex, usaspending
 from ingest.load import load, merge
 
 RAW_DIR = config.BACKEND_DIR / "data" / "raw"
@@ -48,11 +49,16 @@ def report(conn: sqlite3.Connection, data: dict) -> str:
         "SELECT college, COUNT(*) FROM project_colleges GROUP BY college ORDER BY 2 DESC").fetchall()
     shared = count("""SELECT COUNT(*) FROM (SELECT t.researcher_id FROM project_team t JOIN projects p ON p.id = t.project_id
                       GROUP BY t.researcher_id HAVING COUNT(DISTINCT p.source) > 1)""")
+    by_kind = conn.execute("SELECT kind, COUNT(*), SUM(is_active) FROM projects GROUP BY kind").fetchall()
+    by_type = conn.execute("""SELECT category, COUNT(DISTINCT project_id) FROM project_funders
+                              GROUP BY category ORDER BY 2 DESC""").fetchall()
     return "\n".join([
-        f"projects:       {count('SELECT COUNT(*) FROM projects')} ({', '.join(f'{s} {n}' for s, n in by_source)})",
-        f"  active:       {count('SELECT COUNT(*) FROM projects WHERE is_active = 1')}",
+        f"records:        {count('SELECT COUNT(*) FROM projects')} ({', '.join(f'{s} {n}' for s, n in by_source)})",
+        "  by kind:      " + ", ".join(f"{k} {n} ({a} active)" for k, n, a in by_kind),
+        "  funding type: " + ", ".join(f"{c} {n}" for c, n in by_type),
+        f"  with topic:   {count('SELECT COUNT(DISTINCT project_id) FROM project_topics')}",
         f"award years:    {count('SELECT COUNT(*) FROM award_years')}",
-        f"researchers:    {count('SELECT COUNT(*) FROM researchers')} ({shared} with awards from both NIH and NSF)",
+        f"researchers:    {count('SELECT COUNT(*) FROM researchers')} ({shared} found in more than one source)",
         f"research areas: {count('SELECT COUNT(*) FROM research_areas')}",
         f"no abstract:    {count('SELECT COUNT(*) FROM projects WHERE length(abstract) = 0')}",
         f"no college:     {len(data['unmapped_project_ids'])}",
@@ -64,6 +70,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--years", default="2022-2026", help="NIH fiscal years, e.g. 2022-2026 or 2024,2025")
     parser.add_argument("--offline", action="store_true", help="load from the cached raw JSON instead of the APIs")
+    parser.add_argument("--publications-from", type=int, default=2024, help="first publication year (default 2024)")
     args = parser.parse_args()
 
     years = parse_years(args.years)
@@ -71,7 +78,7 @@ def main() -> None:
     init_schema(conn)
     run_id = conn.execute(
         "INSERT INTO ingest_runs (source, started_at, fiscal_years) VALUES (?, ?, ?)",
-        ("nih-reporter,nsf-awards", _now(), args.years),
+        ("nih-reporter,nsf-awards,usaspending,clinicaltrials-gov,openalex", _now(), args.years),
     ).lastrowid
     conn.commit()
 
@@ -80,7 +87,18 @@ def main() -> None:
                       lambda: nih_reporter.fetch(years), args.offline)
         nsf = _cached(RAW_DIR / f"nsf_awards_from{years[0]}.json",
                       lambda: nsf_awards.fetch(years[0]), args.offline)
-        data = merge([nih_reporter.normalize(nih), nsf_awards.normalize(nsf)])
+        usa = _cached(RAW_DIR / f"usaspending_from{years[0]}.json",
+                      lambda: usaspending.fetch(years[0]), args.offline)
+        trials = _cached(RAW_DIR / "clinicaltrials_gov.json", clinical_trials.fetch, args.offline)
+        pubs = _cached(RAW_DIR / f"openalex_from{args.publications_from}.json",
+                       lambda: openalex.fetch(args.publications_from), args.offline)
+        data = merge([
+            nih_reporter.normalize(nih),
+            nsf_awards.normalize(nsf),
+            usaspending.normalize(usa, years[0]),
+            clinical_trials.normalize(trials, years[0]),
+            openalex.normalize(pubs),
+        ])
         load(conn, data)
     except Exception as exc:
         with conn:
@@ -90,10 +108,11 @@ def main() -> None:
     with conn:
         conn.execute(
             "UPDATE ingest_runs SET finished_at = ?, records_fetched = ?, projects_loaded = ? WHERE id = ?",
-            (_now(), len(nih) + len(nsf), len(data["projects"]), run_id),
+            (_now(), len(nih) + len(nsf) + len(usa) + len(trials) + len(pubs["works"]), len(data["projects"]), run_id),
         )
     where = "cache" if args.offline else "the APIs"
-    print(f"read {len(nih)} NIH and {len(nsf)} NSF records from {where}")
+    print(f"read {len(nih)} NIH, {len(nsf)} NSF, {len(usa)} USAspending, {len(trials)} trial and "
+          f"{len(pubs['works'])} publication records from {where}")
     print(report(conn, data))
 
 

@@ -25,8 +25,9 @@ export default async function HomePage() {
             See the research happening across Temple
           </h1>
           <p className="text-lead text-ink-2 mt-4 mb-7 max-w-xl">
-            {o.totals.awards.toLocaleString()} federally funded awards across {o.totals.colleges} colleges, searchable in
-            plain English and traceable to the original record.
+            {o.totals.awards.toLocaleString()} grants, {o.totals.trials.toLocaleString()} clinical trials and{" "}
+            {o.totals.publications.toLocaleString()} funded papers across {o.totals.colleges} colleges, each traceable to
+            its original public record.
           </p>
           <SearchBar size="lg" placeholder="Try: machine learning in healthcare" />
           <div className="flex flex-wrap items-center gap-2 mt-4">
@@ -58,7 +59,7 @@ export default async function HomePage() {
         <div>
           <StatTiles totals={o.totals} />
           <p className="text-tiny text-ink-3 mt-2">
-            Source: {o.sources.map((s) => s.label).join(" and ")}
+            Sources: {o.sources.map((s) => s.label).join(", ")}
             {o.updatedAt ? ` · updated ${shortDate(o.updatedAt)}` : ""}
           </p>
         </div>
@@ -66,19 +67,19 @@ export default async function HomePage() {
         <div className="grid lg:grid-cols-[1fr_1.4fr] gap-12">
           <Section
             title="Where the funding goes"
-            subtitle="Money obligated since FY2022, by college"
+            subtitle="Grant money obligated since FY2022, by college"
             action={{ href: "/explore", label: "Explore all data" }}
           >
             <BarList
               caption="Funding by college since fiscal year 2022"
-              rows={o.byCollege.map((c) => ({
+              rows={o.byCollege.filter((c) => c.funding > 0).map((c) => ({
                 key: c.college,
                 label: COLLEGES[c.college].short,
                 href: `/search?college=${c.college}`,
                 color: COLLEGES[c.college].color,
                 value: c.funding,
                 valueLabel: money(c.funding),
-                detail: `${c.awards} awards · ${c.active} active`,
+                detail: `${c.awards} grants · ${c.trials} trials · ${c.publications} papers`,
               }))}
             />
           </Section>
@@ -92,13 +93,22 @@ export default async function HomePage() {
           </Section>
         </div>
 
-        <Section title="Recently started" subtitle="The newest active awards" action={{ href: "/search?status=active", label: "All active awards" }}>
-          <ul className="bg-surface border border-line rounded-xl px-5">
-            {o.recent.slice(0, 5).map((p) => (
-              <AwardRow key={p.id} project={p} />
-            ))}
-          </ul>
-        </Section>
+        <div className="grid lg:grid-cols-2 gap-12">
+          <Section title="Recently started grants" action={{ href: "/search?kind=award&status=active", label: "All active grants" }}>
+            <ul className="bg-surface border border-line rounded-xl px-5">
+              {o.recent.slice(0, 4).map((p) => (
+                <AwardRow key={p.id} project={p} />
+              ))}
+            </ul>
+          </Section>
+          <Section title="Clinical trials recruiting now" action={{ href: "/search?kind=trial&status=active", label: `All ${o.totals.recruiting}` }}>
+            <ul className="bg-surface border border-line rounded-xl px-5">
+              {o.recruiting.slice(0, 4).map((p) => (
+                <AwardRow key={p.id} project={p} />
+              ))}
+            </ul>
+          </Section>
+        </div>
       </div>
     </main>
   );

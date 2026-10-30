@@ -24,6 +24,8 @@ export function searchQueryString(params: SearchParams): string {
   params.funders?.forEach((f) => qs.append("funder", f));
   params.status?.forEach((s) => qs.append("status", s));
   params.topics?.forEach((t) => qs.append("topic", t));
+  params.kinds?.forEach((k) => qs.append("kind", k));
+  params.funding?.forEach((f) => qs.append("funding", f));
   return qs.toString();
 }
 

@@ -38,8 +38,10 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
         verification: list[str] = Query(default=[]),
         status: list[str] = Query(default=[]),
         topic: list[str] = Query(default=[]),
+        kind: list[str] = Query(default=[]),
+        funding: list[str] = Query(default=[]),
     ) -> models.SearchResponse:
-        return queries.search(db(request), q, page, college, funder, verification, status, topic)
+        return queries.search(db(request), q, page, college, funder, verification, status, topic, kind, funding)
 
     @app.get("/api/overview")
     def overview(request: Request) -> models.Overview:

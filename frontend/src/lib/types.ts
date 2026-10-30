@@ -7,21 +7,27 @@ export type CollegeId =
   | "engineering"
   | "business"
   | "media"
-  | "education";
+  | "education"
+  | "liberal-arts";
 
-export type Verification = "faculty-confirmed" | "public-award-record";
+export type Verification = "faculty-confirmed" | "public-award-record" | "public-registry-record" | "public-publication-record";
+
+export type Kind = "award" | "trial" | "publication"; // grant, clinical trial, publication
 
 export interface Project {
   id: string;
+  kind: Kind;
   title: string;
   summary: string;
   colleges: CollegeId[];
   verification: Verification;
   pi: { name: string; department: string };
-  funder: string; // e.g. "NIH R01", "NSF CBET"
-  agency: string; // NIH, NSF, CDC, AHRQ
-  active: boolean; // the funder's own flag; not proof a study is recruiting
-  amount: number | null; // obligated in the latest fiscal year
+  funder: string; // grants: "NIH R01"; trials: lead sponsor; publications: first funders
+  agency: string; // grants: NIH, NSF, DOD...; trials: lead sponsor; publications: journal
+  active: boolean; // the source's own flag; for grants not proof a study is recruiting
+  statusLabel: string; // "Active", "Recruiting", "Published 2025", ...
+  fundingTypes: string[]; // e.g. ["U.S. federal government", "Foundations & nonprofits"]
+  amount: number | null; // grants: obligated in the latest fiscal year
   startYear: number;
   endYear: number;
   source: { label: string; url: string };
@@ -48,9 +54,22 @@ export interface TopicRef {
   name: string;
 }
 
+export interface Fact {
+  label: string;
+  value: string;
+  href?: string | null;
+}
+
+export interface FunderRef {
+  name: string;
+  type: string; // funding type label
+}
+
 export interface ProjectDetail extends Project {
   abstract: string[]; // paragraphs
   methodologies: string[];
+  facts: Fact[]; // the key facts for this kind of record, in display order
+  funders: FunderRef[];
   funding: { agency: string; mechanism: string; period: string; total: string; awardNumber: string };
   fundingByYear: YearAmount[];
   topics: TopicRef[];
@@ -66,7 +85,9 @@ export interface FacetValue {
 }
 
 export interface Facets {
+  kinds: FacetValue[];
   colleges: FacetValue[];
+  fundingTypes: FacetValue[];
   funders: FacetValue[];
   status: FacetValue[];
   topics: FacetValue[];
@@ -89,11 +110,16 @@ export interface SearchParams {
   funders?: string[];
   status?: string[];
   topics?: string[];
+  kinds?: string[];
+  funding?: string[];
 }
 
 export interface Totals {
   awards: number;
   active: number;
+  trials: number;
+  recruiting: number;
+  publications: number;
   researchers: number;
   colleges: number;
 }
@@ -101,7 +127,8 @@ export interface Totals {
 export interface SourceSummary {
   label: string;
   url: string;
-  awards: number;
+  records: number;
+  kind: string; // "grants", "clinical trials", "publications"
   coverage: string;
 }
 
@@ -109,7 +136,23 @@ export interface CollegeStat {
   college: CollegeId;
   awards: number;
   active: number;
-  funding: number; // obligated FY2022 onward
+  funding: number; // grant money obligated FY2022 onward
+  trials: number;
+  publications: number;
+}
+
+export interface FundingTypeStat {
+  type: string; // key, e.g. "foundation"
+  label: string;
+  awards: number;
+  trials: number;
+  publications: number;
+}
+
+export interface AgencyStat {
+  agency: string;
+  funding: number;
+  awards: number;
 }
 
 export interface YearStat {
@@ -129,6 +172,8 @@ export interface TopicSummary {
   awards: number;
   active: number;
   funding: number;
+  trials: number;
+  publications: number;
 }
 
 export interface Overview {
@@ -136,9 +181,13 @@ export interface Overview {
   sources: SourceSummary[];
   updatedAt: string | null;
   byCollege: CollegeStat[];
+  fundingTypes: FundingTypeStat[];
+  federalByAgency: AgencyStat[];
   trend: YearStat[];
   topics: TopicSummary[];
   recent: Project[];
+  recruiting: Project[];
+  publications: Project[];
   crossCollege: Project[];
 }
 
@@ -155,7 +204,9 @@ export interface TopicDetail {
   byCollege: CollegeStat[];
   trend: YearStat[];
   people: TopicPerson[];
-  projects: Project[];
+  projects: Project[]; // grants
+  trials: Project[];
+  publications: Project[];
   related: TopicSummary[];
 }
 

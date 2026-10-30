@@ -2,22 +2,27 @@
 
 import re
 import sqlite3
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import date
 
 from app import models
 from app.colleges import COLLEGE_NAMES
-from app.topics import AREA_TO_TOPIC, BY_ID as TOPICS_BY_ID
+from app.topics import BY_ID as TOPICS_BY_ID
+from ingest.funders import CATEGORIES as FUNDING_TYPES
 
 PAGE_SIZE = 10
 # NIH center grants are stored as a parent award plus component sub-projects whose money is part of
 # the parent's. Lists, counts and totals use parents only so nothing is counted twice.
 PARENT_ONLY = "(p.source != 'nih-reporter' OR p.id = 'nih-' || p.award_number)"
+KIND_LABELS = {"award": "Grants", "trial": "Clinical trials", "publication": "Publications"}
 STATUS_LABELS = {"active": "Active", "ended": "Ended"}
-STUDENT_NOTICE = (
-    "This is a public award record: funding history, not a confirmed study. "
-    "Contact the investigator to ask whether students are involved."
-)
+NOTICES = {
+    "award": "This is a public award record: funding history, not a confirmed study. "
+             "Contact the investigator to ask whether students are involved.",
+    "trial": "Trial status comes from ClinicalTrials.gov and may lag behind. Contact the study team listed there "
+             "before relying on it.",
+    "publication": "This is a published paper. Funders are as reported in the publication record.",
+}
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "in", "into", "is", "it", "of",
     "on", "or", "research", "study", "studies", "that", "the", "to", "using", "what", "who", "with", "about",
@@ -26,50 +31,60 @@ STOPWORDS = {
 FIELD_LABELS = {"title": "title", "abstract": "abstract", "terms": "subject terms", "people": "investigators"}
 
 
+def _marks(values: list) -> str:
+    return ",".join("?" * len(values))
+
+
 # ---------- shared ----------
 
-def _colleges(conn: sqlite3.Connection, ids: list[str]) -> dict[str, list[str]]:
-    out: dict[str, list[str]] = {i: [] for i in ids}
+def _by_project(conn: sqlite3.Connection, sql: str, ids: list[str]) -> dict[str, list[sqlite3.Row]]:
+    out: dict[str, list[sqlite3.Row]] = defaultdict(list)
     if ids:
-        rows = conn.execute(
-            f"SELECT project_id, college FROM project_colleges WHERE project_id IN ({','.join('?' * len(ids))})", ids)
-        for r in rows:
-            out[r["project_id"]].append(r["college"])
+        for r in conn.execute(sql.format(marks=_marks(ids)), ids):
+            out[r["project_id"]].append(r)
     return out
 
 
-def _contact_pi(conn: sqlite3.Connection, project_id: str) -> str:
-    row = conn.execute(
-        "SELECT name FROM project_team WHERE project_id = ? ORDER BY position LIMIT 1", (project_id,)).fetchone()
-    return row["name"] if row else ""
-
-
-def _project(conn: sqlite3.Connection, row: sqlite3.Row, colleges: list[str]) -> models.Project:
-    return models.Project(
-        id=row["id"],
-        title=row["title"],
-        summary=row["summary"],
-        colleges=colleges,
-        verification=row["verification"],
-        pi=models.PI(name=_contact_pi(conn, row["id"]), department=row["department"] or "Temple University"),
-        funder=row["funder"],
-        agency=row["agency"],
-        active=bool(row["is_active"]),
-        amount=row["latest_amount"] or None,
-        startYear=row["start_year"],
-        endYear=row["end_year"],
-        source=models.Source(label=row["source_label"], url=row["source_url"]),
-        updatedAt=row["updated_at"],
-    )
-
-
 def _projects(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[models.Project]:
-    colleges = _colleges(conn, [r["id"] for r in rows])
-    return [_project(conn, r, colleges[r["id"]]) for r in rows]
+    ids = [r["id"] for r in rows]
+    colleges = _by_project(conn, "SELECT project_id, college FROM project_colleges WHERE project_id IN ({marks})", ids)
+    funders = _by_project(conn, """SELECT project_id, category FROM project_funders
+                                   WHERE project_id IN ({marks}) ORDER BY position""", ids)
+    leads = _by_project(conn, """SELECT project_id, name FROM project_team
+                                 WHERE project_id IN ({marks}) ORDER BY position""", ids)
+    out = []
+    for r in rows:
+        types = list(dict.fromkeys(FUNDING_TYPES.get(f["category"], "Other") for f in funders[r["id"]]))
+        lead = leads[r["id"]][0]["name"] if leads[r["id"]] else ""
+        out.append(models.Project(
+            id=r["id"],
+            kind=r["kind"],
+            title=r["title"],
+            summary=r["summary"],
+            colleges=[c["college"] for c in colleges[r["id"]]],
+            verification=r["verification"],
+            pi=models.PI(name=lead, department=r["department"] or ""),
+            funder=r["funder"],
+            agency=r["agency"],
+            active=bool(r["is_active"]),
+            statusLabel=r["status_label"],
+            fundingTypes=types,
+            amount=r["latest_amount"] or None,
+            startYear=r["start_year"],
+            endYear=r["end_year"],
+            source=models.Source(label=r["source_label"], url=r["source_url"]),
+            updatedAt=r["updated_at"] or "",
+        ))
+    return out
 
 
 def _month_year(iso: str | None) -> str:
-    return date.fromisoformat(iso).strftime("%b %Y") if iso else "n/a"
+    if not iso:
+        return "n/a"
+    try:
+        return date.fromisoformat(iso[:10]).strftime("%b %Y") if len(iso) >= 10 else iso
+    except ValueError:
+        return iso
 
 
 def _initials(name: str) -> str:
@@ -77,15 +92,20 @@ def _initials(name: str) -> str:
     return (parts[0][0] + parts[-1][0]).upper() if parts else ""
 
 
+def topic_ids(conn: sqlite3.Connection, project_id: str) -> list[str]:
+    return [r["topic_id"] for r in conn.execute(
+        "SELECT topic_id FROM project_topics WHERE project_id = ? ORDER BY method, topic_id", (project_id,))]
+
+
 # ---------- projects ----------
 
 def featured(conn: sqlite3.Connection, limit: int = 3) -> list[models.Project]:
-    """Active awards, largest first, one per college and spread across sources so the home page shows breadth."""
-    rows = conn.execute("""
+    """Active grants, largest first, one per college and spread across sources so the home page shows breadth."""
+    rows = conn.execute(f"""
         SELECT p.*, c.college FROM projects p JOIN project_colleges c ON c.project_id = p.id
-        WHERE p.is_active = 1 AND length(p.abstract) > 0 AND {PARENT_ONLY}
+        WHERE p.kind = 'award' AND p.is_active = 1 AND length(p.abstract) > 0 AND {PARENT_ONLY}
         ORDER BY p.latest_amount DESC
-    """.format(PARENT_ONLY=PARENT_ONLY)).fetchall()
+    """).fetchall()
     picked, colleges, sources = [], set(), set()
     for new_source_only in (True, False):
         for r in rows:
@@ -102,35 +122,66 @@ def featured(conn: sqlite3.Connection, limit: int = 3) -> list[models.Project]:
 def projects_by_ids(conn: sqlite3.Connection, ids: list[str]) -> list[models.Project]:
     if not ids:
         return []
-    rows = conn.execute(f"SELECT * FROM projects WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()
+    rows = conn.execute(f"SELECT * FROM projects WHERE id IN ({_marks(ids)})", ids).fetchall()
     by_id = {r["id"]: r for r in rows}
     return _projects(conn, [by_id[i] for i in ids if i in by_id])
+
+
+def _facts(row: sqlite3.Row, funders: list[sqlite3.Row]) -> list[models.Fact]:
+    kind, amount = row["kind"], row["latest_amount"]
+    link = models.Fact(label={"award": "Award number", "trial": "Registry ID", "publication": "DOI"}[kind],
+                       value=row["award_number"], href=row["source_url"])
+    if kind == "trial":
+        return [
+            models.Fact(label="Status", value=row["status_label"]),
+            models.Fact(label="Lead sponsor", value=row["funder"] or "Not listed"),
+            models.Fact(label="Study dates", value=f"{_month_year(row['start_date'])} – {_month_year(row['end_date'])}"),
+            models.Fact(label="Phase / type", value=row["activity_code"] or "Not listed"),
+            link,
+        ]
+    if kind == "publication":
+        return [
+            models.Fact(label="Published", value=_month_year(row["start_date"])),
+            models.Fact(label="Journal", value=row["activity_code"] or "Not listed"),
+            models.Fact(label="Funders", value=f"{len(funders)} reported"),
+            models.Fact(label="Source", value=row["source_label"]),
+            link,
+        ]
+    return [
+        models.Fact(label="Status", value=row["status_label"]),
+        models.Fact(label="Funder", value=f"{row['admin_ic_name']} ({row['agency']})" if row["admin_ic_name"]
+                    else row["agency"]),
+        models.Fact(label="Award period", value=f"{_month_year(row['start_date'])} – {_month_year(row['end_date'])}"),
+        models.Fact(label="Latest year", value=f"${amount:,} in FY{row['latest_fy']}" if amount else "n/a"),
+        link,
+    ]
 
 
 def project_detail(conn: sqlite3.Connection, project_id: str) -> models.ProjectDetail | None:
     row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
     if not row:
         return None
-    colleges = _colleges(conn, [project_id])[project_id]
+    colleges = [r["college"] for r in conn.execute(
+        "SELECT college FROM project_colleges WHERE project_id = ?", (project_id,))]
     team = conn.execute("""
         SELECT t.researcher_id, t.name, t.role, r.department, r.college
         FROM project_team t LEFT JOIN researchers r ON r.id = t.researcher_id
         WHERE t.project_id = ? ORDER BY t.position
     """, (project_id,)).fetchall()
-    amount = row["latest_amount"]
-    base = _project(conn, row, colleges)
+    funders = conn.execute(
+        "SELECT name, category FROM project_funders WHERE project_id = ? ORDER BY position", (project_id,)).fetchall()
     by_year = conn.execute("""
         SELECT fiscal_year, SUM(award_amount) AS amount FROM award_years
         WHERE project_id = ? AND award_amount IS NOT NULL GROUP BY fiscal_year ORDER BY fiscal_year
     """, (project_id,)).fetchall()
-    topic_ids = sorted({AREA_TO_TOPIC[r["area_id"]] for r in conn.execute(
-        "SELECT area_id FROM project_areas WHERE project_id = ?", (project_id,)) if r["area_id"] in AREA_TO_TOPIC})
+    amount = row["latest_amount"]
+    base = _projects(conn, [row])[0]
     return models.ProjectDetail(
         **base.model_dump(),
         abstract=[p for p in row["abstract"].split("\n\n") if p] or [row["summary"]],
         methodologies=[],
-        fundingByYear=[models.YearAmount(fiscalYear=r["fiscal_year"], amount=r["amount"]) for r in by_year],
-        topics=[models.TopicRef(id=t, name=TOPICS_BY_ID[t].name) for t in topic_ids],
+        facts=_facts(row, funders),
+        funders=[models.FunderRef(name=f["name"], type=FUNDING_TYPES.get(f["category"], "Other")) for f in funders],
         funding=models.Funding(
             agency=f"{row['admin_ic_name']} ({row['agency']})" if row["admin_ic_name"] else row["agency"],
             mechanism=row["activity_code"] or "",
@@ -138,29 +189,32 @@ def project_detail(conn: sqlite3.Connection, project_id: str) -> models.ProjectD
             total=f"${amount:,} in FY{row['latest_fy']}" if amount else "n/a",
             awardNumber=row["award_number"],
         ),
+        fundingByYear=[models.YearAmount(fiscalYear=r["fiscal_year"], amount=r["amount"]) for r in by_year],
+        topics=[models.TopicRef(id=t, name=TOPICS_BY_ID[t].name) for t in topic_ids(conn, project_id) if t in TOPICS_BY_ID],
         team=[
             models.TeamMember(
                 researcherId=t["researcher_id"],
                 name=t["name"],
                 role=t["role"],
                 department=t["department"] or row["department"] or "",
-                college=t["college"] or (colleges[0] if colleges else None),
+                college=t["college"] or (colleges[0] if colleges and t["researcher_id"] else None),
             )
             for t in team
         ],
-        students=models.Students(skills=[], notice=STUDENT_NOTICE),
+        students=models.Students(skills=[], notice=NOTICES[row["kind"]]),
         relatedProjectIds=related_ids(conn, row),
     )
 
 
 def related_ids(conn: sqlite3.Connection, row: sqlite3.Row, limit: int = 3) -> list[str]:
-    """Same investigators' other awards first, then awards with similar titles."""
-    same_pi = [r["project_id"] for r in conn.execute("""
+    """Same investigators' other records first, then records with similar titles."""
+    same_pi = [r["project_id"] for r in conn.execute(f"""
         SELECT DISTINCT t2.project_id FROM project_team t1
         JOIN project_team t2 ON t2.researcher_id = t1.researcher_id AND t2.project_id != t1.project_id
         JOIN projects p ON p.id = t2.project_id
-        WHERE t1.project_id = ? AND {PARENT_ONLY} ORDER BY p.latest_fy DESC LIMIT ?
-    """.format(PARENT_ONLY=PARENT_ONLY), (row["id"], limit))]
+        WHERE t1.project_id = ? AND t1.researcher_id IS NOT NULL AND {PARENT_ONLY}
+        ORDER BY p.kind = ? DESC, p.latest_fy DESC LIMIT ?
+    """, (row["id"], row["kind"], limit))]
     if len(same_pi) < limit:
         tokens = _tokens(row["title"])
         if tokens:
@@ -198,28 +252,25 @@ def researcher(conn: sqlite3.Connection, researcher_id: str) -> models.Researche
     if not row:
         return None
     projects = conn.execute("""
-        SELECT p.id, p.title, p.latest_fy, p.start_year, p.agency, p.source_label, t.role
+        SELECT p.id, p.title, p.kind, p.latest_fy, p.start_year, p.source_label, t.role
         FROM project_team t JOIN projects p ON p.id = t.project_id
         WHERE t.researcher_id = ? ORDER BY p.latest_fy DESC, p.start_year DESC
     """, (researcher_id,)).fetchall()
     ids = [p["id"] for p in projects]
-    n = len(ids)
+    kinds = Counter(p["kind"] for p in projects)
+    parts = [f"{n} {KIND_LABELS[k].lower() if n != 1 else KIND_LABELS[k].lower().rstrip('s')}" for k, n in kinds.items()]
     first_year = min((p["start_year"] for p in projects), default=None)
-    agencies = Counter(p["agency"] for p in projects)
-    funded_by = (f"{next(iter(agencies))}-funded" if len(agencies) == 1
-                 else "federally funded")
-    breakdown = f" ({', '.join(f'{c} {a}' for a, c in agencies.most_common())})" if len(agencies) > 1 else ""
     summary = (
-        f"Investigator on {n} {funded_by} award{'s' if n != 1 else ''}{breakdown} at Temple"
+        f"Listed on {', '.join(parts) or 'no records'} at Temple"
         + (f" since {first_year}" if first_year else "")
         + (f", most recently “{projects[0]['title']}”." if projects else ".")
     )
-    sources = " and ".join(sorted({p["source_label"] for p in projects})) or "public award"
+    sources = " and ".join(sorted({p["source_label"] for p in projects})) or "public"
     return models.ResearcherProfile(
         id=row["id"],
         name=row["name"],
         initials=_initials(row["name"]),
-        title="Principal Investigator",
+        title="Investigator",
         college=row["college"],
         department=row["department"] or "",
         verified=bool(row["verified"]),
@@ -264,28 +315,32 @@ def _match(row: sqlite3.Row, tokens: list[str]) -> models.Match | None:
     )
 
 
-def _marks(values: list) -> str:
-    return ",".join("?" * len(values))
-
-
-def _filters(colleges, funders, verification, status, topics) -> dict[str, tuple[str, list]]:
+def _filters(colleges, funders, verification, status, topics, kinds=None, funding=None) -> dict[str, tuple[str, list]]:
     """One SQL condition per filter dimension, so facet counts can leave their own dimension out."""
     out: dict[str, tuple[str, list]] = {}
+    if kinds:
+        out["kind"] = (f"p.kind IN ({_marks(kinds)})", list(kinds))
     if colleges:
         out["college"] = (f"p.id IN (SELECT project_id FROM project_colleges WHERE college IN ({_marks(colleges)}))",
                           list(colleges))
+    if funding:
+        out["funding"] = (f"p.id IN (SELECT project_id FROM project_funders WHERE category IN ({_marks(funding)}))",
+                          list(funding))
     if funders:
         out["funder"] = (f"(p.agency IN ({_marks(funders)}) OR p.funder IN ({_marks(funders)}))",
                          list(funders) + list(funders))
     if verification:
         out["verification"] = (f"p.verification IN ({_marks(verification)})", list(verification))
-    flags = [1 if s == "active" else 0 for s in status or [] if s in STATUS_LABELS]
-    if flags:
-        out["status"] = (f"p.is_active IN ({_marks(flags)})", flags)
+    conds = []
+    if "active" in (status or []):
+        conds.append("p.is_active = 1")
+    if "ended" in (status or []):
+        conds.append("(p.is_active = 0 AND p.kind != 'publication')")
+    if conds:
+        out["status"] = ("(" + " OR ".join(conds) + ")", [])
     if topics:
-        areas = [a for t in topics if t in TOPICS_BY_ID for a in TOPICS_BY_ID[t].areas]
-        out["topic"] = ((f"p.id IN (SELECT project_id FROM project_areas WHERE area_id IN ({_marks(areas)}))", areas)
-                        if areas else ("0", []))
+        out["topic"] = (f"p.id IN (SELECT project_id FROM project_topics WHERE topic_id IN ({_marks(topics)}))",
+                        list(topics))
     return out
 
 
@@ -307,31 +362,36 @@ def _facets(conn: sqlite3.Connection, tokens: list[str], filters: dict) -> model
         base, params = _base(tokens, filters, skip)
         return f"SELECT p.id {base}", params
 
+    base, params = _base(tokens, filters, "kind")
+    kinds = conn.execute(f"SELECT p.kind, COUNT(*) n {base} GROUP BY p.kind ORDER BY n DESC", params).fetchall()
     sql, params = ids_sql("college")
     colleges = conn.execute(
         f"SELECT college, COUNT(*) n FROM project_colleges WHERE project_id IN ({sql}) GROUP BY college ORDER BY n DESC",
         params).fetchall()
+    sql, params = ids_sql("funding")
+    funding = conn.execute(f"""SELECT category, COUNT(DISTINCT project_id) n FROM project_funders
+                               WHERE project_id IN ({sql}) GROUP BY category ORDER BY n DESC""", params).fetchall()
     base, params = _base(tokens, filters, "funder")
-    funders = conn.execute(f"SELECT p.agency, COUNT(*) n {base} GROUP BY p.agency ORDER BY n DESC", params).fetchall()
+    funders = conn.execute(f"SELECT p.agency, COUNT(*) n {base} AND p.kind = 'award' GROUP BY p.agency ORDER BY n DESC",
+                           params).fetchall()
     base, params = _base(tokens, filters, "status")
-    status = conn.execute(f"SELECT p.is_active, COUNT(*) n {base} GROUP BY p.is_active ORDER BY p.is_active DESC",
-                          params).fetchall()
+    status = conn.execute(f"""SELECT p.is_active, COUNT(*) n {base} AND p.kind != 'publication'
+                              GROUP BY p.is_active ORDER BY p.is_active DESC""", params).fetchall()
     sql, params = ids_sql("topic")
-    per_topic: Counter = Counter()
-    project_topics: dict[str, set[str]] = {}
-    for r in conn.execute(f"SELECT project_id, area_id FROM project_areas WHERE project_id IN ({sql})", params):
-        if r["area_id"] in AREA_TO_TOPIC:
-            project_topics.setdefault(r["project_id"], set()).add(AREA_TO_TOPIC[r["area_id"]])
-    for topic_ids in project_topics.values():
-        per_topic.update(topic_ids)
+    topics = conn.execute(f"""SELECT topic_id, COUNT(*) n FROM project_topics WHERE project_id IN ({sql})
+                              GROUP BY topic_id ORDER BY n DESC""", params).fetchall()
 
     return models.Facets(
+        kinds=[models.FacetValue(value=r["kind"], label=KIND_LABELS[r["kind"]], count=r["n"]) for r in kinds],
         colleges=[models.FacetValue(value=r["college"], label=COLLEGE_NAMES.get(r["college"], r["college"]), count=r["n"])
                   for r in colleges],
+        fundingTypes=[models.FacetValue(value=r["category"], label=FUNDING_TYPES.get(r["category"], "Other"), count=r["n"])
+                      for r in funding],
         funders=[models.FacetValue(value=r["agency"], label=r["agency"], count=r["n"]) for r in funders],
         status=[models.FacetValue(value="active" if r["is_active"] else "ended",
                                   label="Active" if r["is_active"] else "Ended", count=r["n"]) for r in status],
-        topics=[models.FacetValue(value=t, label=TOPICS_BY_ID[t].name, count=n) for t, n in per_topic.most_common()],
+        topics=[models.FacetValue(value=r["topic_id"], label=TOPICS_BY_ID[r["topic_id"]].name, count=r["n"])
+                for r in topics if r["topic_id"] in TOPICS_BY_ID],
     )
 
 
@@ -344,15 +404,17 @@ def search(
     verification: list[str] | None = None,
     status: list[str] | None = None,
     topics: list[str] | None = None,
+    kinds: list[str] | None = None,
+    funding: list[str] | None = None,
 ) -> models.SearchResponse:
     tokens = _tokens(q)
-    filters = _filters(colleges, funders, verification, status, topics)
+    filters = _filters(colleges, funders, verification, status, topics, kinds, funding)
     base, params = _base(tokens, filters)
     if tokens:
         order = "bm25(projects_fts, 0, 10, 3, 1, 2), p.is_active DESC"
         cols = "p.*, f.people"
     else:
-        order = "p.is_active DESC, p.latest_fy DESC, p.latest_amount DESC"
+        order = "p.kind = 'award' DESC, p.is_active DESC, p.latest_fy DESC, p.latest_amount DESC"
         cols = "p.*, '' AS people"
 
     total = conn.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]
@@ -367,7 +429,7 @@ def search(
 
     return models.SearchResponse(
         query=q,
-        interpretedAs=f"Keywords: {', '.join(tokens)}" if tokens else "All awards",
+        interpretedAs=f"Keywords: {', '.join(tokens)}" if tokens else "All records",
         total=total,
         page=page,
         pageSize=PAGE_SIZE,

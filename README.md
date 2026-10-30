@@ -1,13 +1,13 @@
 # Research Hub
 
-Temple ResearchConnect: a research discovery site that shows the federally funded research happening across Temple University colleges, built from public NIH and NSF award records. Built for the Temple AI Build Challenge (<https://ibit.temple.edu/aibuild/>; confirm current deadlines and requirements in the official guidelines).
+Temple ResearchConnect: a research discovery site that shows the research happening across Temple University colleges, built from public records of grants (NIH, NSF, other federal agencies), clinical trials and funded publications. Built for the Temple AI Build Challenge (<https://ibit.temple.edu/aibuild/>; confirm current deadlines and requirements in the official guidelines).
 
 ## Status
 
 | Area | State |
 | --- | --- |
 | Frontend (`frontend/`) | v4 redesign: Home, Explore, Search, Topics, Award, Ask, About. All real data. |
-| Backend (`backend/`) | NIH and NSF ingestion, overview, topics, search with facets, grounded assistant. |
+| Backend (`backend/`) | Five sources (NIH, NSF, USAspending, ClinicalTrials.gov, OpenAlex), overview, topics, search with facets, grounded assistant (Gemini). |
 | API contract | [docs/api.md](docs/api.md). Types: `frontend/src/lib/types.ts`. |
 
 ## Run the frontend
@@ -25,13 +25,21 @@ npm run dev   # http://localhost:3000, talks to http://localhost:8000 (override 
 ```bash
 cd backend
 uv sync
-uv run python -m ingest.run            # fetch Temple NIH (FY2022-2026) and NSF (active since 2022) awards into data/hub.db
+uv run python -m ingest.run            # fetch every source into data/hub.db (about 2 minutes)
 uv run python -m ingest.run --offline  # reload from the cached raw JSON, no API calls
 uv run uvicorn app.main:app --reload            # http://localhost:8000/health
 uv run pytest
 ```
 
-College mapping lives in `backend/app/colleges.py`. Entries marked `APPROX` have no matching `CollegeId` yet. NIH names a department; NSF names only the funding directorate, so NSF colleges are approximate. A researcher found in both sources (same first and last name) is merged into one profile.
+| Source | What | Notes |
+| --- | --- | --- |
+| NIH RePORTER | Grants, FY2022 onward | Department gives the college |
+| NSF Award Search | Grants active since 2022 | College inferred from the directorate |
+| USAspending.gov | Other federal agencies' grants (DOD, DOE, ED, NASA, ...) | Research programs only; NIH/NSF skipped as duplicates |
+| ClinicalTrials.gov | Trials sponsored by Temple or run at a Temple site | Status ("Recruiting") from the registry |
+| OpenAlex | Articles since 2024 with a Temple author and a reported funder | Affiliation gives the college; optional `OPENALEX_API_KEY` in `.env` |
+
+Mapping rules live in `backend/app/colleges.py` (colleges), `backend/ingest/funders.py` (funding types, inferred from names) and `backend/app/topics.py` (topics: funder institute for grants, title keywords otherwise). People are matched across sources by first and last name.
 
 ## Pages
 
@@ -88,7 +96,7 @@ Check the Temple AI Build Challenge rules on approved AI providers and data hand
 ## Known gaps
 
 - Search is keyword-based; AI interpretation of natural-language questions is not built yet.
-- The assistant needs `ANTHROPIC_API_KEY` in `backend/.env`.
+- The assistant needs `GEMINI_API_KEY` in `backend/.env` (copy `backend/.env.example`).
 - About 30 awards have no college (mostly NSF social-science awards whose PIs have no other awards).
 - The "Cancer" and several smaller topics have no photo and use a plain tile.
 

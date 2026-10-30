@@ -3,17 +3,45 @@
 import sqlite3
 from collections import Counter, defaultdict
 
+from app.topics import AREA_TO_TOPIC, topics_from_text
 from ingest.text import name_key
 
-TABLES = ("projects", "award_years", "project_colleges", "researchers", "project_team",
-          "research_areas", "project_areas")
+TABLES = ("projects", "award_years", "project_colleges", "project_funders", "researchers", "project_team",
+          "research_areas", "project_areas", "project_topics")
 # When the same person appears in several sources, keep the record from the first source listed.
-SOURCE_PRIORITY = ("nih-reporter", "nsf-awards")
+SOURCE_PRIORITY = ("nih-reporter", "nsf-awards", "clinicaltrials-gov", "openalex", "usaspending")
+# Sources whose college comes from a guess (funding directorate, trial site) rather than a named unit.
+WEAK_COLLEGE_SOURCES = {"nsf-awards", "clinicaltrials-gov"}
+
+
+def _fill_award_defaults(data: dict) -> None:
+    """NIH and NSF rows predate kinds and funder rows; give them both."""
+    has_funder = {f["project_id"] for f in data["project_funders"]}
+    for p in data["projects"]:
+        p.setdefault("kind", "award")
+        p.setdefault("status_label", "Active" if p["is_active"] else "Ended")
+        if p["id"] not in has_funder:
+            data["project_funders"].append({"project_id": p["id"], "position": 0,
+                                            "name": p.get("admin_ic_name") or p["agency"], "category": "federal"})
+
+
+def _drop_duplicate_awards(data: dict) -> None:
+    """USAspending also lists some awards that NIH RePORTER already provides in more detail (CDC, AHRQ)."""
+    known = {p["award_number"] for p in data["projects"] if p["source"] in ("nih-reporter", "nsf-awards")}
+    dupes = {p["id"] for p in data["projects"]
+             if p["source"] == "usaspending" and any(k and k in p["award_number"] for k in known)}
+    if dupes:
+        for table in ("projects",):
+            data[table] = [r for r in data[table] if r["id"] not in dupes]
+        for table in ("award_years", "project_funders", "project_colleges", "project_team", "project_areas"):
+            data[table] = [r for r in data[table] if r["project_id"] not in dupes]
 
 
 def merge(datasets: list[dict]) -> dict:
     """Combine sources and merge researchers that appear in more than one (same first and last name)."""
-    data = {t: [row for d in datasets for row in d[t]] for t in TABLES}
+    data = {t: [row for d in datasets for row in d.get(t, [])] for t in TABLES}
+    _fill_award_defaults(data)
+    _drop_duplicate_awards(data)
 
     rank = {s: i for i, s in enumerate(SOURCE_PRIORITY)}
     canonical: dict[str, dict] = {}
@@ -23,28 +51,46 @@ def merge(datasets: list[dict]) -> dict:
         if key in canonical and canonical[key]["source"] != r["source"]:
             alias[r["id"]] = canonical[key]["id"]
             canonical[key]["department"] = canonical[key]["department"] or r["department"]
+            if r.get("_affiliation_college") and not canonical[key].get("_affiliation_college"):
+                canonical[key]["_affiliation_college"] = r["_affiliation_college"]
         else:
             canonical.setdefault(key, r)
     data["researchers"] = [r for r in data["researchers"] if r["id"] not in alias]
     for member in data["project_team"]:
         member["researcher_id"] = alias.get(member["researcher_id"], member["researcher_id"])
+    # A person can appear twice on one record after merging; keep the first.
+    seen: set[tuple] = set()
+    team = []
+    for m in data["project_team"]:
+        key = (m["project_id"], m["researcher_id"] or m["name"])
+        if key not in seen:
+            seen.add(key)
+            team.append(m)
+    data["project_team"] = team
 
     data["research_areas"] = list({a["id"]: a for a in data["research_areas"]}.values())
+    data["project_colleges"] = list({(c["project_id"], c["college"]): c for c in data["project_colleges"]}.values())
     return finalize(data)
 
 
 def finalize(data: dict) -> dict:
-    """Fill colleges the sources didn't give, from each investigator's other awards.
+    """Fill colleges and topics the sources didn't give.
 
-    1. A researcher's college is the most common college among their awards that have one.
-       Awards whose college comes from a named department (NIH) outrank ones guessed from
-       the funding directorate (NSF).
-    2. An award with no college takes the most common college of its investigators.
+    Colleges:
+    1. A researcher's college is the most common college among their records that have one, plus the
+       college named in their own affiliation. Colleges named by a department or affiliation outrank ones
+       guessed from an NSF directorate or a trial site.
+    2. A record with no college takes the most common college of its investigators.
+    Topics: from the funding institute where there is one, otherwise from words in the title and terms.
     """
+    source_of = {p["id"]: p["source"] for p in data["projects"]}
+    department_of = {p["id"]: p["department"] for p in data["projects"]}
     project_colleges: dict[str, set[str]] = defaultdict(set)
     for row in data["project_colleges"]:
         project_colleges[row["project_id"]].add(row["college"])
-    has_department = {p["id"] for p in data["projects"] if p["department"]}
+    strong_projects = {pid for pid in project_colleges
+                       if source_of.get(pid) not in WEAK_COLLEGE_SOURCES
+                       and not (source_of.get(pid) == "nih-reporter" and not department_of.get(pid))}
     team_by_project: dict[str, list[str]] = defaultdict(list)
     for member in data["project_team"]:
         if member["researcher_id"]:
@@ -54,9 +100,11 @@ def finalize(data: dict) -> dict:
     weak: dict[str, Counter] = defaultdict(Counter)
     for pid, rids in team_by_project.items():
         for rid in rids:
-            (strong if pid in has_department else weak)[rid].update(project_colleges.get(pid, ()))
-    votes = {rid: strong[rid] or weak[rid] for rid in set(strong) | set(weak)}
-    votes = defaultdict(Counter, votes)
+            (strong if pid in strong_projects else weak)[rid].update(project_colleges.get(pid, ()))
+    for r in data["researchers"]:
+        if r.get("_affiliation_college"):
+            strong[r["id"]][r["_affiliation_college"]] += 2
+    votes = defaultdict(Counter, {rid: strong[rid] or weak[rid] for rid in set(strong) | set(weak)})
 
     unmapped = []
     for p in data["projects"]:
@@ -69,8 +117,22 @@ def finalize(data: dict) -> dict:
             unmapped.append(p["id"])
 
     for r in data["researchers"]:
+        r.pop("_affiliation_college", None)
         if votes[r["id"]]:
             r["college"] = votes[r["id"]].most_common(1)[0][0]
+
+    topics = []
+    by_area: dict[str, set[str]] = defaultdict(set)
+    for row in data["project_areas"]:
+        if row["area_id"] in AREA_TO_TOPIC:
+            by_area[row["project_id"]].add(AREA_TO_TOPIC[row["area_id"]])
+    for p in data["projects"]:
+        if by_area.get(p["id"]):
+            topics += [{"project_id": p["id"], "topic_id": t, "method": "funder"} for t in sorted(by_area[p["id"]])]
+        else:
+            topics += [{"project_id": p["id"], "topic_id": t, "method": "keywords"}
+                       for t in topics_from_text(p["title"], p["terms"])]
+    data["project_topics"] = topics
 
     data["unmapped_project_ids"] = unmapped
     return data

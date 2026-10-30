@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: "Search" };
 type Raw = Record<string, string | string[] | undefined>;
 const list = (v: string | string[] | undefined) => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
 
-function toggle(params: SearchParams, key: "colleges" | "funders" | "status" | "topics", value: string): string {
+function toggle(params: SearchParams, key: "colleges" | "funders" | "status" | "topics" | "kinds" | "funding", value: string): string {
   const current = params[key] ?? [];
   const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
   return `/search?${searchQueryString({ ...params, [key]: next, page: 1 })}`;
@@ -70,10 +70,12 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
     funders: list(searchParams.funder),
     status: list(searchParams.status),
     topics: list(searchParams.topic),
+    kinds: list(searchParams.kind),
+    funding: list(searchParams.funding),
   };
   const data = await searchProjects(params);
   const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
-  const filtered = [params.colleges, params.funders, params.status, params.topics].some((v) => v?.length);
+  const filtered = [params.colleges, params.funders, params.status, params.topics, params.kinds, params.funding].some((v) => v?.length);
   const pageHref = (page: number) => `/search?${searchQueryString({ ...params, page })}`;
 
   return (
@@ -90,6 +92,12 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
       <div className="grid lg:grid-cols-[240px_1fr] gap-10 mt-8">
         <aside aria-label="Filters" className="space-y-6 lg:sticky lg:top-24 self-start min-w-0">
           <FacetGroup
+            title="Type"
+            values={data.facets.kinds}
+            selected={params.kinds ?? []}
+            hrefFor={(v) => toggle(params, "kinds", v)}
+          />
+          <FacetGroup
             title="Status"
             values={data.facets.status}
             selected={params.status ?? []}
@@ -103,7 +111,13 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
             dot={(v) => COLLEGES[v as CollegeId]?.color}
           />
           <FacetGroup
-            title="Funder"
+            title="Funding type"
+            values={data.facets.fundingTypes}
+            selected={params.funding ?? []}
+            hrefFor={(v) => toggle(params, "funding", v)}
+          />
+          <FacetGroup
+            title="Grant funder"
             values={data.facets.funders}
             selected={params.funders ?? []}
             hrefFor={(v) => toggle(params, "funders", v)}
@@ -124,7 +138,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
         <section aria-label="Results">
           <h1 className="font-sans text-body text-ink-2 mb-2">
             <span className="font-semibold text-ink num">{data.total.toLocaleString()}</span>{" "}
-            {data.total === 1 ? "award" : "awards"}
+            {data.total === 1 ? "record" : "records"}
             {params.q ? (
               <>
                 {" "}matching <span className="font-semibold text-ink">“{params.q}”</span>
@@ -140,7 +154,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
             </ul>
           ) : (
             <div className="bg-surface border border-line rounded-xl p-8 text-center">
-              <p className="font-serif text-h3">No awards match that search</p>
+              <p className="font-serif text-h3">Nothing matches that search</p>
               <p className="text-small text-ink-3 mt-1">Try fewer words, a broader topic, or clear the filters.</p>
             </div>
           )}

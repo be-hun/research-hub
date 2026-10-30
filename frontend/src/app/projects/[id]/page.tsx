@@ -4,14 +4,14 @@ import { notFound } from "next/navigation";
 import AwardRow from "@/components/AwardRow";
 import YearBars from "@/components/charts/YearBars";
 import Section from "@/components/Section";
-import { CollegeTag, SourceTag, StatusChip } from "@/components/Tags";
+import { CollegeTag, KindTag, SourceTag, StatusChip } from "@/components/Tags";
 import { getProject, getProjects } from "@/lib/api";
 import { money, shortDate } from "@/lib/format";
 import { FUNDER_SERIES } from "@/lib/series";
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
   const p = await getProject(params.id);
-  return { title: p?.title ?? "Award" };
+  return { title: p?.title ?? "Record" };
 }
 
 export default async function ProjectPage({ params }: { params: { id: string } }) {
@@ -29,40 +29,33 @@ export default async function ProjectPage({ params }: { params: { id: string } }
         return { year: fy, values: { amount: row?.amount ?? 0 }, missing: !row };
       })
     : [];
-  const facts = [
-    { label: "Status", value: <StatusChip active={project.active} /> },
-    { label: "Funder", value: <span>{project.funding.agency}</span> },
-    { label: "Award period", value: <span className="num">{project.funding.period}</span> },
-    { label: "Latest year", value: <span className="num">{project.funding.total}</span> },
-    {
-      label: "Award number",
-      value: (
-        <a href={project.source.url} target="_blank" rel="noreferrer" className="num text-cherry underline underline-offset-2">
-          {project.funding.awardNumber} ↗
-        </a>
-      ),
-    },
-  ];
+  const noun = { award: "grant", trial: "trial", publication: "paper" }[project.kind];
+  const lead = project.kind === "publication" ? "Temple authors" : project.kind === "trial" ? "Study official" : "Led by";
 
   return (
     <main className="max-w-page mx-auto px-4 sm:px-6 pt-8 space-y-10">
       <nav aria-label="Breadcrumb" className="text-small text-ink-3">
-        <Link href="/search" className="hover:text-ink">Awards</Link> <span aria-hidden="true">/</span>{" "}
-        <span className="text-ink-2">{project.funder}</span>
+        <Link href={`/search?kind=${project.kind}`} className="hover:text-ink">
+          {{ award: "Grants", trial: "Clinical trials", publication: "Publications" }[project.kind]}
+        </Link>{" "}
+        <span aria-hidden="true">/</span> <span className="text-ink-2">{project.facts[project.facts.length - 1]?.value}</span>
       </nav>
 
       <header className="max-w-4xl">
         <div className="flex flex-wrap items-center gap-3 mb-3">
+          <KindTag kind={project.kind} />
           {project.colleges.map((c) => (
             <CollegeTag key={c} id={c} short={false} />
           ))}
-          <SourceTag agency={project.agency} />
+          {project.kind === "award" && <SourceTag agency={project.agency} />}
         </div>
         <h1 className="text-[30px] leading-[38px] sm:text-h1">{project.title}</h1>
-        <p className="text-small text-ink-3 mt-3">
-          Led by <span className="text-ink font-medium">{project.pi.name}</span>
-          {project.pi.department && project.pi.department !== "Temple University" ? `, ${project.pi.department}` : ""}
-        </p>
+        {project.pi.name && (
+          <p className="text-small text-ink-3 mt-3">
+            {lead} <span className="text-ink font-medium">{project.pi.name}</span>
+            {project.pi.department ? `, ${project.pi.department}` : ""}
+          </p>
+        )}
         {project.topics.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-4">
             {project.topics.map((t) => (
@@ -79,22 +72,34 @@ export default async function ProjectPage({ params }: { params: { id: string } }
       </header>
 
       <dl className="grid grid-cols-2 md:grid-cols-5 gap-px bg-line border border-line rounded-xl overflow-hidden">
-        {facts.map((f) => (
-          <div key={f.label} className="bg-surface px-4 py-3">
+        {project.facts.map((f) => (
+          <div key={f.label} className="bg-surface px-4 py-3 min-w-0">
             <dt className="text-tiny text-ink-3 mb-1">{f.label}</dt>
-            <dd className="text-small font-medium">{f.value}</dd>
+            <dd className="text-small font-medium break-words">
+              {f.label === "Status" ? (
+                <StatusChip label={f.value} active={project.active} />
+              ) : f.href ? (
+                <a href={f.href} target="_blank" rel="noreferrer" className="num text-cherry underline underline-offset-2">
+                  {f.value} ↗
+                </a>
+              ) : (
+                f.value
+              )}
+            </dd>
           </div>
         ))}
       </dl>
 
       <div className="grid lg:grid-cols-[1.6fr_1fr] gap-12">
         <div className="space-y-10">
-          <Section title="About this award">
+          <Section title={`About this ${noun}`}>
             <div className="space-y-4 text-body text-ink-2 max-w-[70ch]">
               <p className="text-lead text-ink">{project.summary}</p>
               {project.abstract.length > 0 && (
                 <details>
-                  <summary className="cursor-pointer text-small font-medium text-cherry">Read the full abstract</summary>
+                  <summary className="cursor-pointer text-small font-medium text-cherry">
+                    {project.kind === "trial" ? "Read the full description" : "Read the full abstract"}
+                  </summary>
                   <div className="space-y-4 mt-3">
                     {project.abstract.map((para, i) => (
                       <p key={i}>{para}</p>
@@ -106,7 +111,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
           </Section>
 
           {related.length > 0 && (
-            <Section title="Related awards" subtitle="The same investigators' other awards, then similar topics">
+            <Section title="Related research" subtitle="The same people's other records, then similar topics">
               <ul className="bg-surface border border-line rounded-xl px-5">
                 {related.map((p) => (
                   <AwardRow key={p.id} project={p} />
@@ -128,7 +133,22 @@ export default async function ProjectPage({ params }: { params: { id: string } }
             </Section>
           )}
 
-          <Section title="Team">
+          {project.funders.length > 0 && (
+            <Section title={project.kind === "trial" ? "Sponsors" : "Funders"}>
+              <ul className="bg-surface border border-line rounded-xl divide-y divide-line">
+                {project.funders.map((f) => (
+                  <li key={f.name} className="px-4 py-3">
+                    <div className="font-medium">{f.name}</div>
+                    <div className="text-tiny text-ink-3">{f.type}</div>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-tiny text-ink-3 mt-2">Funding types are inferred from names.</p>
+            </Section>
+          )}
+
+          {project.team.length > 0 && (
+          <Section title={project.kind === "publication" ? "Temple authors" : "Team"}>
             <ul className="bg-surface border border-line rounded-xl divide-y divide-line">
               {project.team.map((m) => (
                 <li key={`${m.name}-${m.role}`} className="px-4 py-3">
@@ -146,13 +166,15 @@ export default async function ProjectPage({ params }: { params: { id: string } }
               ))}
             </ul>
           </Section>
+          )}
 
           <p className="text-small text-ink-3">
             {project.students.notice} Record from{" "}
             <a href={project.source.url} target="_blank" rel="noreferrer" className="text-cherry underline underline-offset-2">
               {project.source.label}
             </a>
-            , updated {shortDate(project.updatedAt)}. Latest-year amount: {money(project.amount)}.
+            {project.updatedAt ? `, updated ${shortDate(project.updatedAt)}` : ""}.
+            {project.kind === "award" ? ` Latest-year amount: ${money(project.amount)}.` : ""}
           </p>
         </aside>
       </div>

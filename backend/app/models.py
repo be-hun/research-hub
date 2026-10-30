@@ -4,8 +4,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-CollegeId = Literal["medicine", "public-health", "science-tech", "engineering", "business", "media", "education"]
-Verification = Literal["faculty-confirmed", "public-award-record"]
+CollegeId = Literal["medicine", "public-health", "science-tech", "engineering", "business", "media", "education",
+                    "liberal-arts"]
+Verification = Literal["faculty-confirmed", "public-award-record", "public-registry-record", "public-publication-record"]
+Kind = Literal["award", "trial", "publication"]
 
 
 class PI(BaseModel):
@@ -25,15 +27,18 @@ class Match(BaseModel):
 
 class Project(BaseModel):
     id: str
+    kind: Kind  # grant ("award"), clinical trial or publication
     title: str
     summary: str
     colleges: list[CollegeId]
     verification: Verification
     pi: PI
     funder: str
-    agency: str  # NIH, NSF, CDC, AHRQ
-    active: bool  # the funder's own flag; not proof a study is recruiting
-    amount: int | None  # obligated in the latest fiscal year
+    agency: str  # grants: NIH, NSF, DOD...; trials: lead sponsor; publications: journal
+    active: bool  # the source's own flag; for grants not proof a study is recruiting
+    statusLabel: str  # "Active", "Recruiting", "Published 2025", ...
+    fundingTypes: list[str]  # e.g. ["U.S. federal government", "Foundations & nonprofits"]
+    amount: int | None  # grants: obligated in the latest fiscal year
     startYear: int
     endYear: int
     source: Source
@@ -72,9 +77,22 @@ class TopicRef(BaseModel):
     name: str
 
 
+class Fact(BaseModel):
+    label: str
+    value: str
+    href: str | None = None
+
+
+class FunderRef(BaseModel):
+    name: str
+    type: str  # funding type label
+
+
 class ProjectDetail(Project):
     abstract: list[str]
     methodologies: list[str]
+    facts: list[Fact]  # the key facts for this kind of record, in display order
+    funders: list[FunderRef]
     funding: Funding
     fundingByYear: list[YearAmount]
     topics: list[TopicRef]
@@ -155,7 +173,9 @@ class FacetValue(BaseModel):
 
 
 class Facets(BaseModel):
+    kinds: list[FacetValue]
     colleges: list[FacetValue]
+    fundingTypes: list[FacetValue]
     funders: list[FacetValue]
     status: list[FacetValue]
     topics: list[FacetValue]
@@ -176,6 +196,9 @@ class SearchResponse(BaseModel):
 class Totals(BaseModel):
     awards: int
     active: int
+    trials: int
+    recruiting: int
+    publications: int
     researchers: int
     colleges: int
 
@@ -183,7 +206,8 @@ class Totals(BaseModel):
 class SourceSummary(BaseModel):
     label: str
     url: str
-    awards: int
+    records: int
+    kind: str  # "grants", "clinical trials", "publications"
     coverage: str  # e.g. "Fiscal years 2022–2026"
 
 
@@ -191,7 +215,23 @@ class CollegeStat(BaseModel):
     college: CollegeId
     awards: int
     active: int
-    funding: int  # obligated FY2022 onward
+    funding: int  # grant money obligated FY2022 onward
+    trials: int
+    publications: int
+
+
+class FundingTypeStat(BaseModel):
+    type: str  # key, e.g. "foundation"
+    label: str
+    awards: int
+    trials: int
+    publications: int
+
+
+class AgencyStat(BaseModel):
+    agency: str  # NIH, NSF, DOD...
+    funding: int
+    awards: int
 
 
 class YearStat(BaseModel):
@@ -211,6 +251,8 @@ class TopicSummary(BaseModel):
     awards: int
     active: int
     funding: int
+    trials: int
+    publications: int
 
 
 class Overview(BaseModel):
@@ -218,9 +260,13 @@ class Overview(BaseModel):
     sources: list[SourceSummary]
     updatedAt: str | None
     byCollege: list[CollegeStat]
+    fundingTypes: list[FundingTypeStat]
+    federalByAgency: list[AgencyStat]
     trend: list[YearStat]
     topics: list[TopicSummary]
     recent: list[Project]
+    recruiting: list[Project]
+    publications: list[Project]
     crossCollege: list[Project]
 
 
@@ -237,5 +283,7 @@ class TopicDetail(BaseModel):
     byCollege: list[CollegeStat]
     trend: list[YearStat]
     people: list[TopicPerson]
-    projects: list[Project]
+    projects: list[Project]  # grants
+    trials: list[Project]
+    publications: list[Project]
     related: list[TopicSummary]

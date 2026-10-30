@@ -24,7 +24,10 @@ export default function TopicTile({ topic }: { topic: TopicSummary }) {
       <div className="p-4">
         <h3 className="font-sans text-body font-semibold group-hover:text-cherry">{topic.name}</h3>
         <p className="text-small text-ink-3 num mt-0.5">
-          {topic.active} active · {topic.awards} total
+          {topic.awards} grants · {topic.active} active
+        </p>
+        <p className="text-tiny text-ink-3 num">
+          {topic.trials} trials · {topic.publications} papers
         </p>
       </div>
     </Link>

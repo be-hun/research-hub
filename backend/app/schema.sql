@@ -1,9 +1,11 @@
 -- Every record carries its source, verification status and last-updated date.
--- Verification values: 'faculty-confirmed' | 'public-award-record'.
+-- A "project" is any research record: a grant ('award'), a clinical trial ('trial') or a publication.
 
 CREATE TABLE IF NOT EXISTS projects (
-    id              TEXT PRIMARY KEY,          -- e.g. nih-R01AG080817
-    award_number    TEXT NOT NULL,             -- NIH core project number
+    id              TEXT PRIMARY KEY,          -- e.g. nih-R01AG080817, ct-NCT01234567, pub-W123
+    award_number    TEXT NOT NULL,             -- award number, NCT id or DOI
+    kind            TEXT NOT NULL CHECK (kind IN ('award', 'trial', 'publication')),
+    status_label    TEXT NOT NULL,             -- "Active", "Recruiting", "Published 2025", ...
     title           TEXT NOT NULL,
     summary         TEXT NOT NULL,
     abstract        TEXT NOT NULL,             -- paragraphs separated by blank lines
@@ -24,8 +26,26 @@ CREATE TABLE IF NOT EXISTS projects (
     source          TEXT NOT NULL,             -- 'nih-reporter'
     source_label    TEXT NOT NULL,
     source_url      TEXT NOT NULL,
-    verification    TEXT NOT NULL CHECK (verification IN ('faculty-confirmed', 'public-award-record')),
+    verification    TEXT NOT NULL CHECK (verification IN (
+                        'faculty-confirmed', 'public-award-record', 'public-registry-record', 'public-publication-record')),
     updated_at      TEXT NOT NULL
+);
+
+-- Who paid for or sponsored each record, with an inferred funding type (see ingest/funders.py).
+CREATE TABLE IF NOT EXISTS project_funders (
+    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    position        INTEGER NOT NULL,
+    name            TEXT NOT NULL,
+    category        TEXT NOT NULL,             -- federal | industry | foundation | temple | academic | government | other
+    PRIMARY KEY (project_id, position)
+);
+
+-- Plain-language topics. method = 'funder' (from the funding institute) or 'keywords' (title and terms).
+CREATE TABLE IF NOT EXISTS project_topics (
+    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    topic_id        TEXT NOT NULL,
+    method          TEXT NOT NULL,
+    PRIMARY KEY (project_id, topic_id)
 );
 
 -- One row per project per fiscal year, for trends.
@@ -52,7 +72,8 @@ CREATE TABLE IF NOT EXISTS researchers (
     college         TEXT,
     verified        INTEGER NOT NULL DEFAULT 0,
     source          TEXT NOT NULL,
-    verification    TEXT NOT NULL CHECK (verification IN ('faculty-confirmed', 'public-award-record')),
+    verification    TEXT NOT NULL CHECK (verification IN (
+                        'faculty-confirmed', 'public-award-record', 'public-registry-record', 'public-publication-record')),
     updated_at      TEXT NOT NULL
 );
 

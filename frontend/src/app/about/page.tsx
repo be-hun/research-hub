@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import Section from "@/components/Section";
+import SourceCards from "@/components/SourceCards";
 import { getOverview } from "@/lib/api";
 import { shortDate } from "@/lib/format";
 
@@ -18,28 +19,32 @@ const AUDIENCES = [
   },
   {
     title: "Staff and leadership",
-    text: "Get an honest overview of Temple's federally funded research by college, topic and year.",
+    text: "Get an honest overview of Temple's research by college, topic, funder and year.",
   },
 ];
 
 const STEPS = [
-  ["Public award records", "NIH RePORTER and NSF Award Search publish every federal award to Temple."],
-  ["Import and clean", "A script pulls Temple's awards, removes duplicates, maps each to a college and topic, and keeps a link to the original."],
+  ["Public records", "Federal grants (NIH, NSF, USAspending), clinical trials (ClinicalTrials.gov) and funded publications (OpenAlex)."],
+  ["Import and clean", "A script pulls Temple's records, removes duplicates, maps each to a college, topic and funding type, and keeps a link to the original."],
   ["Searchable database", "Search, filters, counts and charts are ordinary database queries. No AI is involved in any number you see."],
   ["Ask", "For a question, the assistant first searches the records, then writes an answer only from those records, citing each one."],
 ];
 
 const LIMITS = [
-  "An award record is funding history. It does not show that a study is active, recruiting, or taking students.",
-  "Only federal awards from NIH and NSF are included, so most of a researcher's work, and whole fields that are not federally funded, are missing.",
-  "NIH names an award's department; NSF names only the directorate that funded it, so colleges for NSF awards are inferred and can be wrong.",
-  "People are matched across NIH and NSF by first and last name.",
-  "Topics group awards by the institute or division that funded them, not by reading the research itself.",
+  "A grant record is funding history. It does not show that a study is active, recruiting, or taking students.",
+  "A trial's status (\"Recruiting\") is what the study team last reported to ClinicalTrials.gov, and can be out of date.",
+  "Industry contracts, internal Temple funds and most foundation grants are not public. They appear only when a trial or paper names them as a sponsor or funder.",
+  "Publications cover 2024 onward, and only articles that report a funder. Unfunded work, books and older papers are missing.",
+  "Funding types (federal, industry, foundation, Temple…) are inferred from funder and sponsor names by fixed rules, and can be wrong.",
+  "USAspending includes some training and service grants alongside research grants.",
+  "Colleges come from NIH departments, publication and trial affiliations, or, least reliably, the NSF directorate or the trial site.",
+  "People are matched across sources by first and last name, so two people with the same name can be merged.",
+  "Topics come from the institute that funded a grant; for trials and papers they are matched by words in the title, which is less exact.",
   "The most recent fiscal year may be incomplete while the funders are still publishing records.",
 ];
 
 const AI_DOES = [
-  "Answers only from award records it retrieved for your question, and numbers a source for every claim.",
+  "Answers only from the grants, trials and papers it retrieved for your question, and numbers a source for every claim.",
   "Says plainly when no record matches, instead of guessing.",
   "Drops any citation that does not point to a record it was given.",
 ];
@@ -86,18 +91,10 @@ export default async function AboutPage() {
       </Section>
 
       <Section id="sources" title="Where the data comes from">
-        <div className="grid sm:grid-cols-2 gap-4">
-          {o.sources.map((s) => (
-            <a key={s.label} href={s.url} target="_blank" rel="noreferrer" className="block bg-surface border border-line rounded-xl p-5 hover:border-line-strong">
-              <div className="font-semibold">{s.label} ↗</div>
-              <div className="font-serif text-h2 num mt-1">{s.awards.toLocaleString()} awards</div>
-              <div className="text-small text-ink-3">{s.coverage}</div>
-            </a>
-          ))}
-        </div>
+        <SourceCards sources={o.sources} />
         <p className="text-small text-ink-3 mt-3">
-          {o.updatedAt ? `Last imported ${shortDate(o.updatedAt)}. ` : ""}Planned, not yet included: U.S. Department of
-          Education awards, publications (ORCID, TUScholarShare) and faculty-confirmed profiles.
+          {o.updatedAt ? `Last imported ${shortDate(o.updatedAt)}. ` : ""}Planned, not yet included: faculty-confirmed
+          profiles, older publications and Temple&apos;s institutional repository (TUScholarShare).
         </p>
       </Section>
 
