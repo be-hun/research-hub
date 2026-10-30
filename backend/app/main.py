@@ -3,13 +3,19 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import config, models, queries
+from app import ai, assistant, config, models, queries
 from app.db import connect, init_schema
 
 
 def create_app(db_path: Path | str | None = None) -> FastAPI:
     app = FastAPI(title="Research Hub API")
-    app.add_middleware(CORSMiddleware, allow_origins=config.CORS_ORIGINS, allow_methods=["GET"], allow_headers=["*"])
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.CORS_ORIGINS,
+        allow_origin_regex=config.CORS_ORIGIN_REGEX or None,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
 
     conn = connect(db_path or config.DB_PATH)
     init_schema(conn)
@@ -54,6 +60,13 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
         if not profile:
             raise HTTPException(404, "Researcher not found")
         return profile
+
+    @app.post("/api/assistant")
+    def assistant_reply(request: Request, body: models.AssistantRequest) -> models.AssistantReply:
+        try:
+            return assistant.answer(db(request), body.messages)
+        except ai.AIUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
 
     return app
 

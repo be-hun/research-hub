@@ -3,16 +3,25 @@
 import { useState } from "react";
 import Icon from "./Icon";
 
+interface Source {
+  n: number;
+  id: string;
+  title: string;
+  url: string;
+}
+
 interface Message {
   role: "user" | "assistant";
   text: string;
+  sources?: Source[];
+  error?: boolean; // not sent back as conversation history
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 const SUGGESTIONS = [
-  "Who at Temple works on AI for maternal health, and is anyone looking for students?",
-  "Compare Dr. Thorne and Dr. Rostova's grant pipelines",
+  "Who at Temple studies Alzheimer's disease, and what are they funded to do?",
+  "What substance use research is happening across Temple colleges?",
 ];
 
 export default function AssistantChat() {
@@ -27,21 +36,28 @@ export default function AssistantChat() {
     setMessages(next);
     setInput("");
     setBusy(true);
-    let reply = "The assistant backend is not connected yet. Set NEXT_PUBLIC_API_URL to enable answers.";
+    let reply: Message = {
+      role: "assistant",
+      text: "The assistant backend is not connected yet. Set NEXT_PUBLIC_API_URL to enable answers.",
+      error: true,
+    };
     if (API_URL) {
       try {
+        const history = next.filter((m) => !m.error).map(({ role, text }) => ({ role, text }));
         const res = await fetch(`${API_URL}/api/assistant`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: next }),
+          body: JSON.stringify({ messages: history }),
         });
-        if (!res.ok) throw new Error(String(res.status));
-        reply = (await res.json()).reply;
+        const body = await res.json().catch(() => ({}));
+        reply = res.ok
+          ? { role: "assistant", text: body.reply, sources: body.sources }
+          : { role: "assistant", text: body.detail ?? "Something went wrong reaching the assistant. Try again.", error: true };
       } catch {
-        reply = "Something went wrong reaching the assistant. Try again.";
+        reply = { role: "assistant", text: "Something went wrong reaching the assistant. Try again.", error: true };
       }
     }
-    setMessages([...next, { role: "assistant", text: reply }]);
+    setMessages([...next, reply]);
     setBusy(false);
   }
 
@@ -72,8 +88,24 @@ export default function AssistantChat() {
               <div className="w-8 h-8 rounded-lg bg-secondary text-white flex items-center justify-center shrink-0">
                 <Icon name="auto_awesome" size={18} />
               </div>
-              <div className="flex-1 bg-[#EEF2FF] border border-[#C7D2FE] rounded-2xl p-4 text-body-md text-[#1E1B4B] whitespace-pre-wrap">
-                {m.text}
+              <div className="flex-1 bg-[#EEF2FF] border border-[#C7D2FE] rounded-2xl p-4 text-body-md text-[#1E1B4B]">
+                <p className="whitespace-pre-wrap">{m.text}</p>
+                {m.sources && m.sources.length > 0 && (
+                  <ol className="mt-3 pt-3 border-t border-[#C7D2FE] space-y-1 text-body-sm">
+                    {m.sources.map((s) => (
+                      <li key={s.n} className="flex gap-2">
+                        <span className="font-semibold">[{s.n}]</span>
+                        <span>
+                          <a href={`/projects/${s.id}`} className="underline hover:text-primary">{s.title}</a>
+                          {" · "}
+                          <a href={s.url} target="_blank" rel="noreferrer" className="text-tertiary hover:underline">
+                            NIH RePORTER
+                          </a>
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </div>
             </div>
           ),

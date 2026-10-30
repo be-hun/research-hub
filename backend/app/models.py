@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 CollegeId = Literal["medicine", "public-health", "science-tech", "engineering", "business", "media", "education"]
 Verification = Literal["faculty-confirmed", "public-award-record"]
@@ -103,6 +103,33 @@ class CollaboratorMatch(BaseModel):
     reasons: list[str]
     citations: list[str]
     sharedTopics: list[str]
+
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class AssistantRequest(BaseModel):
+    messages: list[ChatMessage] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def ends_with_user(self):
+        if self.messages[-1].role != "user":
+            raise ValueError("the last message must be from the user")
+        return self
+
+
+class AssistantSource(BaseModel):
+    n: int  # the [n] number used in the reply text
+    id: str
+    title: str
+    url: str
+
+
+class AssistantReply(BaseModel):
+    reply: str
+    sources: list[AssistantSource]
 
 
 class SearchResponse(BaseModel):

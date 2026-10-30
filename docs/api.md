@@ -46,8 +46,13 @@ Body is `NewOpportunity`. The backend sets `id` and `verifiedByPI` (from the aut
 
 ## `POST /api/assistant`
 
-Body: `{ messages: { role: "user" | "assistant", text: string }[] }`. Returns `{ reply: string }`.
-The reply must only use indexed records and cite sources.
+Body: `{ messages: { role: "user" | "assistant", text: string }[] }` (1–20 messages, each up to 4000 characters, last one from the user).
+Returns `{ reply: string, sources: { n: number, id: string, title: string, url: string }[] }`.
+
+- The backend searches stored records first. If nothing matches, it replies "nothing found" without calling the model.
+- The model sees only the retrieved records and cites them inline as `[n]`. `sources` lists each cited record; citations that don't point at a retrieved record are dropped, and an answer with no valid citation is replaced with a "couldn't answer" reply.
+- `503` with `{ detail }` when the AI service is unavailable or `ANTHROPIC_API_KEY` is not set. The detail is safe to show users.
+- Model calls live only in `backend/app/ai.py` (default `claude-opus-5-5`, set `AI_MODEL` / `AI_EFFORT` in `backend/.env`).
 
 ## Not yet specified
 
