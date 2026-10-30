@@ -15,7 +15,8 @@ UNGROUNDED = (
 )
 
 SYSTEM = """You answer questions about research at Temple University using only the numbered records \
-provided in the latest user message. The records come from NIH RePORTER award data.
+provided in the latest user message. The records are public federal award data from NIH RePORTER \
+and NSF Award Search.
 
 Rules:
 - Use only facts stated in the records. Never add projects, people, dates, amounts or findings that are not in them.
@@ -52,7 +53,7 @@ def _format_record(n: int, r: sqlite3.Row) -> str:
         f"Investigators: {r['team'] or 'not listed'}",
         f"Department: {r['department'] or 'not listed'}; college: {r['colleges'] or 'not listed'}",
         f"Funding: {r['funder']} from {r['admin_ic_name'] or r['agency']}, award {r['award_number']}, "
-        f"{r['start_year']}-{r['end_year']}, NIH status {'active' if r['is_active'] else 'not active'}",
+        f"{r['start_year']}-{r['end_year']}, {'active' if r['is_active'] else 'not active'} per {r['source_label']}",
         f"Abstract: {abstract}",
         "</record>",
     ])
@@ -83,7 +84,7 @@ def answer(conn: sqlite3.Connection, messages: list[models.ChatMessage]) -> mode
         reply=result["answer"],
         sources=[
             models.AssistantSource(n=n, id=records[n - 1]["id"], title=records[n - 1]["title"],
-                                   url=records[n - 1]["source_url"])
+                                   label=records[n - 1]["source_label"], url=records[n - 1]["source_url"])
             for n in cited
         ],
     )

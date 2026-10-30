@@ -3,14 +3,15 @@ from fastapi.testclient import TestClient
 
 from app import ai
 from app.main import create_app
-from ingest.nih_reporter import load, normalize
+from ingest.load import load, merge
+from ingest.nih_reporter import normalize
 from tests.test_nih_reporter import record
 
 
 @pytest.fixture
 def client():
     app = create_app(":memory:")
-    load(app.state.db, normalize([record()]))
+    load(app.state.db, merge([normalize([record()])]))
     return TestClient(app)
 
 

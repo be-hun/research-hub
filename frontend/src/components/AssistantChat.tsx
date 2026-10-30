@@ -7,6 +7,7 @@ interface Source {
   n: number;
   id: string;
   title: string;
+  label: string;
   url: string;
 }
 
@@ -99,7 +100,7 @@ export default function AssistantChat() {
                           <a href={`/projects/${s.id}`} className="underline hover:text-primary">{s.title}</a>
                           {" · "}
                           <a href={s.url} target="_blank" rel="noreferrer" className="text-tertiary hover:underline">
-                            NIH RePORTER
+                            {s.label}
                           </a>
                         </span>
                       </li>

@@ -3,7 +3,7 @@ import Icon from "@/components/Icon";
 
 const DOES = [
   "Answers only from consolidated records and authorized repositories.",
-  "Cites verifiable sources (DOIs, NIH award numbers).",
+  "Cites verifiable sources (NIH and NSF award records).",
   "States plainly when information is unavailable or unindexed.",
   "Explains cross-college matching logic in plain English.",
 ];
@@ -14,11 +14,11 @@ const DOES_NOT = [
   "Send unvetted institutional data to third-party public models.",
 ];
 const SOURCES = [
-  ["NIH RePORTER", "Federal biomedical grants and sub-awards", "Weekly"],
-  ["NSF Awards", "Science, engineering and computing awards", "Bi-weekly"],
-  ["U.S. Dept. of Education", "Institute of Education Sciences awards", "Monthly"],
-  ["ORCID & TUScholarShare", "Publications and institutional repository", "Live"],
-  ["Faculty-confirmed profiles", "Self-attested details and mentoring availability", "Attested"],
+  ["NIH RePORTER", "Federal biomedical grants and sub-awards, FY2022 onward", "Imported"],
+  ["NSF Award Search", "Science, engineering, computing and education awards active since 2022", "Imported"],
+  ["U.S. Dept. of Education", "Institute of Education Sciences awards", "Planned"],
+  ["ORCID & TUScholarShare", "Publications and institutional repository", "Planned"],
+  ["Faculty-confirmed profiles", "Self-attested details and mentoring availability", "Planned"],
 ];
 const CONTROLS = [
   ["Review", "Inspect parsed profile data before it is published."],
@@ -79,7 +79,15 @@ export default function ResponsibleAiPage() {
                     <div className="text-label-lg">{name}</div>
                     <div className="text-body-sm text-tertiary">{desc}</div>
                   </div>
-                  <span className="text-label-sm text-[#065F46] bg-[#ECFDF5] px-2 py-0.5 rounded border border-[#A7F3D0] shrink-0">{sync}</span>
+                  <span
+                    className={`text-label-sm px-2 py-0.5 rounded border shrink-0 ${
+                      sync === "Imported"
+                        ? "text-[#065F46] bg-[#ECFDF5] border-[#A7F3D0]"
+                        : "text-tertiary bg-surface-container-low border-[#E2E8F0]"
+                    }`}
+                  >
+                    {sync}
+                  </span>
                 </div>
               ))}
             </div>

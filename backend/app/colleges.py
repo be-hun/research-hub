@@ -21,6 +21,18 @@ ORG_TYPE_TO_COLLEGE = {
 }
 
 
+# NSF names only the directorate that funded an award, not the Temple department.
+NSF_DIRECTORATE_TO_COLLEGE = {
+    "ENG": "engineering",
+    "CSE": "science-tech",  # Computer & Information Sciences is in the College of Science and Technology
+    "MPS": "science-tech",
+    "BIO": "science-tech",
+    "GEO": "science-tech",
+    "EDU": "education",  # APPROX: some STEM-education awards are run from Science and Technology
+    # SBE, TIP and O/D span several colleges; those awards take the college of the PI's other awards.
+}
+
+
 def college_for(org_type: str | None, department: str | None) -> str | None:
     """Return a CollegeId, or None when NIH gives nothing to map (e.g. university-wide awards)."""
     if department and department in DEPARTMENT_TO_COLLEGE:

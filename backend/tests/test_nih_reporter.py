@@ -1,5 +1,7 @@
 from app.db import connect, init_schema
-from ingest.nih_reporter import load, normalize, paragraphs, person_name, summary_of, title_case
+from ingest.load import load, merge
+from ingest.nih_reporter import normalize, person_name, summary_of
+from ingest.text import paragraphs, title_case
 
 
 def record(**overrides) -> dict:
@@ -71,19 +73,20 @@ def test_subprojects_stay_separate():
 
 
 def test_missing_department_falls_back_to_pi_college():
-    data = normalize([
+    data = merge([normalize([
         record(),
         record(appl_id=3, core_project_num="P30XX000002", organization={"dept_type": None},
                organization_type={"name": "Domestic Higher Education"}),
-    ])
+    ])])
     assert {"project_id": "nih-P30XX000002", "college": "medicine"} in data["project_colleges"]
     assert data["unmapped_project_ids"] == []
+    assert data["researchers"][0]["college"] == "medicine"
 
 
 def test_load_is_repeatable():
     conn = connect(":memory:")
     init_schema(conn)
-    data = normalize([record()])
+    data = merge([normalize([record()])])
     load(conn, data)
     load(conn, data)
     assert conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0] == 1

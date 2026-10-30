@@ -7,7 +7,7 @@ Temple ResearchConnect AI: a research discovery platform for finding projects, r
 | Area | State |
 | --- | --- |
 | Frontend (`frontend/`) | Built. 10 routes, runs on mock data. |
-| Backend (`backend/`) | In progress. Schema and NIH RePORTER ingestion done; endpoints next. |
+| Backend (`backend/`) | In progress. NIH and NSF ingestion, read and search endpoints, grounded assistant. |
 | API contract | Written: [docs/api.md](docs/api.md). Types: `frontend/src/lib/types.ts`. |
 
 ## Run the frontend
@@ -25,13 +25,13 @@ With `NEXT_PUBLIC_API_URL` unset, the frontend serves mock data from `frontend/s
 ```bash
 cd backend
 uv sync
-uv run python -m ingest.nih_reporter            # fetch Temple NIH awards FY2022-2026 into data/hub.db
-uv run python -m ingest.nih_reporter --offline  # reload from the cached raw JSON, no API calls
+uv run python -m ingest.run            # fetch Temple NIH (FY2022-2026) and NSF (active since 2022) awards into data/hub.db
+uv run python -m ingest.run --offline  # reload from the cached raw JSON, no API calls
 uv run uvicorn app.main:app --reload            # http://localhost:8000/health
 uv run pytest
 ```
 
-College mapping lives in `backend/app/colleges.py`. Entries marked `APPROX` have no matching `CollegeId` yet.
+College mapping lives in `backend/app/colleges.py`. Entries marked `APPROX` have no matching `CollegeId` yet. NIH names a department; NSF names only the funding directorate, so NSF colleges are approximate. A researcher found in both sources (same first and last name) is merged into one profile.
 
 ## Pages
 

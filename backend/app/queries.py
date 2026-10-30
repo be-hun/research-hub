@@ -9,7 +9,7 @@ from app import models
 
 PAGE_SIZE = 10
 STUDENT_NOTICE = (
-    "This is an NIH award record: funding history, not a confirmed study. "
+    "This is a public award record: funding history, not a confirmed study. "
     "Contact the investigator to ask whether students are involved."
 )
 STOPWORDS = {
@@ -17,7 +17,7 @@ STOPWORDS = {
     "on", "or", "research", "study", "studies", "that", "the", "to", "using", "what", "who", "with", "about",
     "projects", "project", "temple",
 }
-FIELD_LABELS = {"title": "title", "abstract": "abstract", "terms": "NIH terms", "people": "investigators"}
+FIELD_LABELS = {"title": "title", "abstract": "abstract", "terms": "subject terms", "people": "investigators"}
 
 
 # ---------- shared ----------
@@ -71,19 +71,23 @@ def _initials(name: str) -> str:
 # ---------- projects ----------
 
 def featured(conn: sqlite3.Connection, limit: int = 3) -> list[models.Project]:
-    """Active parent awards, largest first, one per college so the home page spans colleges."""
+    """Active awards, largest first, one per college and spread across sources so the home page shows breadth."""
     rows = conn.execute("""
         SELECT p.*, c.college FROM projects p JOIN project_colleges c ON c.project_id = p.id
-        WHERE p.is_active = 1 AND p.id = 'nih-' || p.award_number AND length(p.abstract) > 0
+        WHERE p.is_active = 1 AND length(p.abstract) > 0
+          AND (p.source != 'nih-reporter' OR p.id = 'nih-' || p.award_number)  -- skip center-grant components
         ORDER BY p.latest_amount DESC
     """).fetchall()
-    picked, seen = [], set()
-    for r in rows:
-        if r["college"] not in seen:
-            seen.add(r["college"])
+    picked, colleges, sources = [], set(), set()
+    for new_source_only in (True, False):
+        for r in rows:
+            if len(picked) == limit:
+                break
+            if r["college"] in colleges or (new_source_only and r["source"] in sources):
+                continue
             picked.append(r)
-        if len(picked) == limit:
-            break
+            colleges.add(r["college"])
+            sources.add(r["source"])
     return _projects(conn, picked)
 
 
@@ -177,17 +181,23 @@ def researcher(conn: sqlite3.Connection, researcher_id: str) -> models.Researche
     if not row:
         return None
     projects = conn.execute("""
-        SELECT p.id, p.title, p.latest_fy, p.start_year, t.role FROM project_team t JOIN projects p ON p.id = t.project_id
+        SELECT p.id, p.title, p.latest_fy, p.start_year, p.agency, p.source_label, t.role
+        FROM project_team t JOIN projects p ON p.id = t.project_id
         WHERE t.researcher_id = ? ORDER BY p.latest_fy DESC, p.start_year DESC
     """, (researcher_id,)).fetchall()
     ids = [p["id"] for p in projects]
     n = len(ids)
     first_year = min((p["start_year"] for p in projects), default=None)
+    agencies = Counter(p["agency"] for p in projects)
+    funded_by = (f"{next(iter(agencies))}-funded" if len(agencies) == 1
+                 else "federally funded")
+    breakdown = f" ({', '.join(f'{c} {a}' for a, c in agencies.most_common())})" if len(agencies) > 1 else ""
     summary = (
-        f"Investigator on {n} NIH-funded award{'s' if n != 1 else ''} at Temple"
+        f"Investigator on {n} {funded_by} award{'s' if n != 1 else ''}{breakdown} at Temple"
         + (f" since {first_year}" if first_year else "")
         + (f", most recently “{projects[0]['title']}”." if projects else ".")
     )
+    sources = " and ".join(sorted({p["source_label"] for p in projects})) or "public award"
     return models.ResearcherProfile(
         id=row["id"],
         name=row["name"],
@@ -198,7 +208,7 @@ def researcher(conn: sqlite3.Connection, researcher_id: str) -> models.Researche
         verified=bool(row["verified"]),
         summary=summary,
         focus=_distinctive_terms(conn, ids),
-        about="This profile is built from public NIH RePORTER award records and has not been confirmed by the researcher.",
+        about=f"This profile is built from public {sources} records and has not been confirmed by the researcher.",
         projectIds=ids,
         publications=[],
     )
@@ -233,7 +243,7 @@ def _match(row: sqlite3.Row, tokens: list[str]) -> models.Match | None:
     where = fields[0] if len(fields) == 1 else ", ".join(fields[:-1]) + " and " + fields[-1]
     return models.Match(
         reason=f"Matched {', '.join(f'“{w}”' for w in words)} in the {where}.",
-        evidence=[f"NIH RePORTER {label}" for label in fields],
+        evidence=[f"{row['source_label']} {label}" for label in fields],
     )
 
 

@@ -43,7 +43,7 @@ class TeamMember(BaseModel):
     name: str
     role: str
     department: str
-    college: CollegeId | None  # None when NIH gives no department to map
+    college: CollegeId | None  # None when the source names no department to map
 
 
 class Funding(BaseModel):
@@ -124,6 +124,7 @@ class AssistantSource(BaseModel):
     n: int  # the [n] number used in the reply text
     id: str
     title: str
+    label: str  # source name, e.g. "NIH RePORTER"
     url: str
 
 
