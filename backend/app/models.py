@@ -31,6 +31,9 @@ class Project(BaseModel):
     verification: Verification
     pi: PI
     funder: str
+    agency: str  # NIH, NSF, CDC, AHRQ
+    active: bool  # the funder's own flag; not proof a study is recruiting
+    amount: int | None  # obligated in the latest fiscal year
     startYear: int
     endYear: int
     source: Source
@@ -59,10 +62,22 @@ class Students(BaseModel):
     notice: str
 
 
+class YearAmount(BaseModel):
+    fiscalYear: int
+    amount: int
+
+
+class TopicRef(BaseModel):
+    id: str
+    name: str
+
+
 class ProjectDetail(Project):
     abstract: list[str]
     methodologies: list[str]
     funding: Funding
+    fundingByYear: list[YearAmount]
+    topics: list[TopicRef]
     team: list[TeamMember]
     students: Students
     relatedProjectIds: list[str]
@@ -133,6 +148,19 @@ class AssistantReply(BaseModel):
     sources: list[AssistantSource]
 
 
+class FacetValue(BaseModel):
+    value: str
+    label: str
+    count: int
+
+
+class Facets(BaseModel):
+    colleges: list[FacetValue]
+    funders: list[FacetValue]
+    status: list[FacetValue]
+    topics: list[FacetValue]
+
+
 class SearchResponse(BaseModel):
     query: str
     interpretedAs: str
@@ -140,3 +168,74 @@ class SearchResponse(BaseModel):
     page: int
     pageSize: int
     results: list[Project]
+    facets: Facets
+
+
+# ---------- explore ----------
+
+class Totals(BaseModel):
+    awards: int
+    active: int
+    researchers: int
+    colleges: int
+
+
+class SourceSummary(BaseModel):
+    label: str
+    url: str
+    awards: int
+    coverage: str  # e.g. "Fiscal years 2022–2026"
+
+
+class CollegeStat(BaseModel):
+    college: CollegeId
+    awards: int
+    active: int
+    funding: int  # obligated FY2022 onward
+
+
+class YearStat(BaseModel):
+    fiscalYear: int
+    nih: int
+    nsf: int
+    other: int
+    awards: int
+    mayBeIncomplete: bool
+
+
+class TopicSummary(BaseModel):
+    id: str
+    name: str
+    blurb: str
+    image: str | None
+    awards: int
+    active: int
+    funding: int
+
+
+class Overview(BaseModel):
+    totals: Totals
+    sources: list[SourceSummary]
+    updatedAt: str | None
+    byCollege: list[CollegeStat]
+    trend: list[YearStat]
+    topics: list[TopicSummary]
+    recent: list[Project]
+    crossCollege: list[Project]
+
+
+class TopicPerson(BaseModel):
+    name: str
+    college: CollegeId | None
+    department: str
+    awards: int
+
+
+class TopicDetail(BaseModel):
+    topic: TopicSummary
+    funders: list[str]  # the funder areas that define this topic
+    byCollege: list[CollegeStat]
+    trend: list[YearStat]
+    people: list[TopicPerson]
+    projects: list[Project]
+    related: list[TopicSummary]

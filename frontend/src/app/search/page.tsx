@@ -1,44 +1,172 @@
-import Icon from "@/components/Icon";
-import ProjectCard from "@/components/ProjectCard";
+import type { Metadata } from "next";
+import Link from "next/link";
+import AwardRow from "@/components/AwardRow";
 import SearchBar from "@/components/SearchBar";
-import { searchProjects } from "@/lib/api";
+import { searchProjects, searchQueryString } from "@/lib/api";
+import { COLLEGES } from "@/lib/colleges";
+import type { CollegeId, FacetValue, SearchParams } from "@/lib/types";
 
-export default async function SearchPage({ searchParams }: { searchParams: { q?: string; page?: string } }) {
-  const q = searchParams.q?.trim() ?? "";
-  const data = await searchProjects({ q, page: Number(searchParams.page) || 1 });
+export const metadata: Metadata = { title: "Search" };
+
+type Raw = Record<string, string | string[] | undefined>;
+const list = (v: string | string[] | undefined) => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
+
+function toggle(params: SearchParams, key: "colleges" | "funders" | "status" | "topics", value: string): string {
+  const current = params[key] ?? [];
+  const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
+  return `/search?${searchQueryString({ ...params, [key]: next, page: 1 })}`;
+}
+
+function FacetGroup({
+  title,
+  values,
+  selected,
+  hrefFor,
+  dot,
+}: {
+  title: string;
+  values: FacetValue[];
+  selected: string[];
+  hrefFor: (v: string) => string;
+  dot?: (v: string) => string | undefined;
+}) {
+  if (!values.length) return null;
+  return (
+    <fieldset className="min-w-0">
+      <legend className="text-tiny font-semibold uppercase tracking-wider text-ink-3 mb-2">{title}</legend>
+      <ul className="space-y-0.5">
+        {values.map((v) => {
+          const on = selected.includes(v.value);
+          return (
+            <li key={v.value}>
+              <Link
+                href={hrefFor(v.value)}
+                aria-current={on ? "true" : undefined}
+                className={`flex items-center gap-2 px-2 py-1.5 -mx-2 rounded-md text-small ${on ? "bg-cherry-tint text-cherry-dark font-semibold" : "text-ink-2 hover:bg-surface"}`}
+              >
+                <span
+                  className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${on ? "bg-cherry border-cherry text-white" : "border-line-strong bg-surface"}`}
+                  aria-hidden="true"
+                >
+                  {on ? "✓" : ""}
+                </span>
+                {dot?.(v.value) && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: dot(v.value) }} aria-hidden="true" />}
+                <span className="truncate min-w-0">{v.label}</span>
+                <span className="ml-auto pl-2 num text-ink-3 shrink-0">{v.count}</span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </fieldset>
+  );
+}
+
+export default async function SearchPage({ searchParams }: { searchParams: Raw }) {
+  const params: SearchParams = {
+    q: (list(searchParams.q)[0] ?? "").trim(),
+    page: Number(list(searchParams.page)[0]) || 1,
+    colleges: list(searchParams.college),
+    funders: list(searchParams.funder),
+    status: list(searchParams.status),
+    topics: list(searchParams.topic),
+  };
+  const data = await searchProjects(params);
+  const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
+  const filtered = [params.colleges, params.funders, params.status, params.topics].some((v) => v?.length);
+  const pageHref = (page: number) => `/search?${searchQueryString({ ...params, page })}`;
 
   return (
-    <main className="max-w-[1440px] mx-auto px-margin py-8 space-y-4">
-      <div className="max-w-4xl mx-auto space-y-3">
-        <SearchBar defaultValue={q} placeholder="Search projects, faculty expertise, grant topics, or natural queries..." />
-        <div className="bg-[#EEF2FF] border border-[#C7D2FE] rounded-lg px-3.5 py-2 flex items-center gap-2 text-[#2F4FD1] text-body-sm">
-          <Icon name="psychology" size={18} />
-          <span>
-            <strong className="font-semibold">Interpreted as:</strong> {data.interpretedAs}
-          </span>
-        </div>
+    <main className="max-w-page mx-auto px-4 sm:px-6 pt-8">
+      <div className="max-w-3xl">
+        <SearchBar defaultValue={params.q} />
+        {params.q && (
+          <p className="text-small text-ink-3 mt-2">
+            <span className="font-medium text-ink-2">Searched for:</span> {data.interpretedAs.replace(/^Keywords: /, "")}
+          </p>
+        )}
       </div>
 
-      <div className="max-w-4xl mx-auto space-y-4">
-        <div className="pb-3 border-b border-[#E2E8F0]">
-          <h1 className="font-headline text-headline-md font-bold">
-            Showing {data.total} Projects for <span className="text-primary">&ldquo;{data.query}&rdquo;</span>
+      <div className="grid lg:grid-cols-[240px_1fr] gap-10 mt-8">
+        <aside aria-label="Filters" className="space-y-6 lg:sticky lg:top-24 self-start min-w-0">
+          <FacetGroup
+            title="Status"
+            values={data.facets.status}
+            selected={params.status ?? []}
+            hrefFor={(v) => toggle(params, "status", v)}
+          />
+          <FacetGroup
+            title="College"
+            values={data.facets.colleges.map((c) => ({ ...c, label: COLLEGES[c.value as CollegeId]?.short ?? c.label }))}
+            selected={params.colleges ?? []}
+            hrefFor={(v) => toggle(params, "colleges", v)}
+            dot={(v) => COLLEGES[v as CollegeId]?.color}
+          />
+          <FacetGroup
+            title="Funder"
+            values={data.facets.funders}
+            selected={params.funders ?? []}
+            hrefFor={(v) => toggle(params, "funders", v)}
+          />
+          <FacetGroup
+            title="Topic"
+            values={data.facets.topics}
+            selected={params.topics ?? []}
+            hrefFor={(v) => toggle(params, "topics", v)}
+          />
+          {filtered && (
+            <Link href={`/search?${searchQueryString({ q: params.q })}`} className="block text-small text-cherry hover:underline">
+              Clear filters
+            </Link>
+          )}
+        </aside>
+
+        <section aria-label="Results">
+          <h1 className="font-sans text-body text-ink-2 mb-2">
+            <span className="font-semibold text-ink num">{data.total.toLocaleString()}</span>{" "}
+            {data.total === 1 ? "award" : "awards"}
+            {params.q ? (
+              <>
+                {" "}matching <span className="font-semibold text-ink">“{params.q}”</span>
+              </>
+            ) : null}
           </h1>
-        </div>
 
-        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-3.5 flex items-start gap-3 text-body-sm text-[#92400E]">
-          <Icon name="warning" size={20} className="text-[#B45309] shrink-0 mt-0.5" />
-          <p>
-            <strong className="font-semibold">Award Notice:</strong> Award records show funding history, not that a study
-            is currently active or recruiting. Check primary grant disclosures or contact researchers directly.
-          </p>
-        </div>
+          {data.results.length ? (
+            <ul className="bg-surface border border-line rounded-xl px-5">
+              {data.results.map((p) => (
+                <AwardRow key={p.id} project={p} showSummary />
+              ))}
+            </ul>
+          ) : (
+            <div className="bg-surface border border-line rounded-xl p-8 text-center">
+              <p className="font-serif text-h3">No awards match that search</p>
+              <p className="text-small text-ink-3 mt-1">Try fewer words, a broader topic, or clear the filters.</p>
+            </div>
+          )}
 
-        <div className="space-y-4">
-          {data.results.map((p) => (
-            <ProjectCard key={p.id} project={p} />
-          ))}
-        </div>
+          {pages > 1 && (
+            <nav aria-label="Pages" className="flex items-center justify-between mt-5 text-small">
+              {data.page > 1 ? (
+                <Link href={pageHref(data.page - 1)} className="px-3 py-2 rounded-md border border-line bg-surface hover:border-line-strong">
+                  ← Previous
+                </Link>
+              ) : (
+                <span />
+              )}
+              <span className="text-ink-3 num">
+                Page {data.page} of {pages}
+              </span>
+              {data.page < pages ? (
+                <Link href={pageHref(data.page + 1)} className="px-3 py-2 rounded-md border border-line bg-surface hover:border-line-strong">
+                  Next →
+                </Link>
+              ) : (
+                <span />
+              )}
+            </nav>
+          )}
+        </section>
       </div>
     </main>
   );

@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import ai, assistant, config, models, queries
+from app import ai, assistant, config, explore, models, queries
 from app.db import connect, init_schema
 
 
@@ -36,8 +36,25 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
         college: list[str] = Query(default=[]),
         funder: list[str] = Query(default=[]),
         verification: list[str] = Query(default=[]),
+        status: list[str] = Query(default=[]),
+        topic: list[str] = Query(default=[]),
     ) -> models.SearchResponse:
-        return queries.search(db(request), q, page, college, funder, verification)
+        return queries.search(db(request), q, page, college, funder, verification, status, topic)
+
+    @app.get("/api/overview")
+    def overview(request: Request) -> models.Overview:
+        return explore.overview(db(request))
+
+    @app.get("/api/topics")
+    def topics(request: Request) -> list[models.TopicSummary]:
+        return explore.overview(db(request)).topics
+
+    @app.get("/api/topics/{topic_id}")
+    def topic(request: Request, topic_id: str) -> models.TopicDetail:
+        detail = explore.topic_detail(db(request), topic_id)
+        if not detail:
+            raise HTTPException(404, "Topic not found")
+        return detail
 
     @app.get("/api/projects/featured")
     def featured(request: Request) -> list[models.Project]:

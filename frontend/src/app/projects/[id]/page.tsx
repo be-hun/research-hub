@@ -1,231 +1,159 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import Card from "@/components/Card";
-import CollegeChip from "@/components/CollegeChip";
-import Icon from "@/components/Icon";
-import { getCollaboratorMatches, getProject, getProjects, hasResearcherProfile } from "@/lib/api";
-import { COLLEGES } from "@/lib/colleges";
+import AwardRow from "@/components/AwardRow";
+import YearBars from "@/components/charts/YearBars";
+import Section from "@/components/Section";
+import { CollegeTag, SourceTag, StatusChip } from "@/components/Tags";
+import { getProject, getProjects } from "@/lib/api";
+import { money, shortDate } from "@/lib/format";
+import { FUNDER_SERIES } from "@/lib/series";
 
-export default async function ProjectDetailPage({ params }: { params: { id: string } }) {
+export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+  const p = await getProject(params.id);
+  return { title: p?.title ?? "Award" };
+}
+
+export default async function ProjectPage({ params }: { params: { id: string } }) {
   const project = await getProject(params.id);
   if (!project) notFound();
+  const related = await getProjects(project.relatedProjectIds);
 
-  const [related, matches] = await Promise.all([
-    getProjects(project.relatedProjectIds),
-    getCollaboratorMatches("r-rivera"),
-  ]);
-  const verified = project.verification === "faculty-confirmed";
+  const funderColor = FUNDER_SERIES.find((s) => s.label === project.agency)?.color ?? FUNDER_SERIES[2].color;
+  // Fill fiscal years with no record so the axis never implies continuous funding.
+  const years = project.fundingByYear.map((y) => y.fiscalYear);
+  const yearData = years.length
+    ? Array.from({ length: Math.max(...years) - Math.min(...years) + 1 }, (_, i) => {
+        const fy = Math.min(...years) + i;
+        const row = project.fundingByYear.find((y) => y.fiscalYear === fy);
+        return { year: fy, values: { amount: row?.amount ?? 0 }, missing: !row };
+      })
+    : [];
+  const facts = [
+    { label: "Status", value: <StatusChip active={project.active} /> },
+    { label: "Funder", value: <span>{project.funding.agency}</span> },
+    { label: "Award period", value: <span className="num">{project.funding.period}</span> },
+    { label: "Latest year", value: <span className="num">{project.funding.total}</span> },
+    {
+      label: "Award number",
+      value: (
+        <a href={project.source.url} target="_blank" rel="noreferrer" className="num text-cherry underline underline-offset-2">
+          {project.funding.awardNumber} ↗
+        </a>
+      ),
+    },
+  ];
 
   return (
-    <main className="max-w-[1440px] mx-auto px-margin py-space-lg">
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-body-sm text-tertiary mb-space-md">
-        <Link href="/" className="hover:text-primary">Discover</Link>
-        <Icon name="chevron_right" size={14} />
-        <Link href="/search" className="hover:text-primary">Projects</Link>
-        <Icon name="chevron_right" size={14} />
-        <span className="text-on-surface font-medium truncate max-w-xl">{project.title}</span>
+    <main className="max-w-page mx-auto px-4 sm:px-6 pt-8 space-y-10">
+      <nav aria-label="Breadcrumb" className="text-small text-ink-3">
+        <Link href="/search" className="hover:text-ink">Awards</Link> <span aria-hidden="true">/</span>{" "}
+        <span className="text-ink-2">{project.funder}</span>
       </nav>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-gutter items-start">
-        <div className="lg:col-span-8 flex flex-col gap-space-lg">
-          <section className="relative overflow-hidden bg-surface-container-lowest rounded-xl border border-surface-container-highest p-space-lg">
-            <div className="absolute top-0 left-0 right-0 h-1" style={{ background: COLLEGES[project.colleges[0]]?.color ?? "#CBD5E1" }} />
-            <div className="flex flex-wrap items-center gap-2 pt-1 mb-3">
-              {project.colleges.map((c) => (
-                <CollegeChip key={c} id={c} />
-              ))}
-              {project.colleges.length > 1 && (
-                <span className="px-2 py-0.5 rounded bg-secondary-container/20 text-secondary text-label-sm border border-secondary/20">
-                  Cross-college
-                </span>
-              )}
-              <span
-                className={`ml-auto px-2.5 py-0.5 rounded-full text-label-sm border ${
-                  verified
-                    ? "bg-[#ECFDF5] text-[#065F46] border-[#A7F3D0]"
-                    : "bg-[#FFFBEB] text-[#92400E] border-[#FDE68A]"
-                }`}
+      <header className="max-w-4xl">
+        <div className="flex flex-wrap items-center gap-3 mb-3">
+          {project.colleges.map((c) => (
+            <CollegeTag key={c} id={c} short={false} />
+          ))}
+          <SourceTag agency={project.agency} />
+        </div>
+        <h1 className="text-[30px] leading-[38px] sm:text-h1">{project.title}</h1>
+        <p className="text-small text-ink-3 mt-3">
+          Led by <span className="text-ink font-medium">{project.pi.name}</span>
+          {project.pi.department && project.pi.department !== "Temple University" ? `, ${project.pi.department}` : ""}
+        </p>
+        {project.topics.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-4">
+            {project.topics.map((t) => (
+              <Link
+                key={t.id}
+                href={`/topics/${t.id}`}
+                className="text-small px-3 py-1 rounded-full bg-surface border border-line hover:border-cherry hover:text-cherry"
               >
-                {verified ? "Faculty confirmed ✓" : "Public award record"}
-              </span>
-            </div>
-            <h1 className="font-headline text-headline-lg mb-3 tracking-tight">{project.title}</h1>
-            <p className="text-body-lg text-tertiary">{project.summary}</p>
-          </section>
+                {t.name}
+              </Link>
+            ))}
+          </div>
+        )}
+      </header>
 
-          <Card title="Abstract & Investigation Objectives" icon="description">
-            <div className="space-y-3 text-body-md text-tertiary">
-              {project.abstract.map((p, i) => (
-                <p key={i}>{p}</p>
-              ))}
-            </div>
-            {project.methodologies.length > 0 && (
-              <div className="mt-5 pt-4 border-t border-surface-container-high">
-                <h3 className="text-label-sm text-on-surface-variant uppercase tracking-wider mb-2">Core Methodologies</h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {project.methodologies.map((m) => (
-                    <span key={m} className="px-2.5 py-1 rounded-lg bg-surface-container-low border border-surface-container-highest text-label-md">
-                      {m}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Card>
+      <dl className="grid grid-cols-2 md:grid-cols-5 gap-px bg-line border border-line rounded-xl overflow-hidden">
+        {facts.map((f) => (
+          <div key={f.label} className="bg-surface px-4 py-3">
+            <dt className="text-tiny text-ink-3 mb-1">{f.label}</dt>
+            <dd className="text-small font-medium">{f.value}</dd>
+          </div>
+        ))}
+      </dl>
 
-          <Card
-            title="Funding & Provenance"
-            icon="account_balance"
-            aside={
-              <a href={project.source.url} className="text-label-md text-secondary hover:underline inline-flex items-center gap-1">
-                Source: {project.source.label} <Icon name="open_in_new" size={14} />
-              </a>
-            }
-          >
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              {[
-                ["Funding Agency", project.funding.agency, project.funding.mechanism && `Mechanism: ${project.funding.mechanism}`],
-                ["Award Period", project.funding.period, ""],
-                ["Total Authorized", project.funding.total, ""],
-                ["Award Number", project.funding.awardNumber, ""],
-              ].map(([label, value, sub]) => (
-                <div key={label} className="p-3 rounded-lg bg-surface-container-low border border-surface-container-highest">
-                  <p className="text-label-sm text-on-surface-variant">{label}</p>
-                  <p className="text-label-lg mt-0.5">{value}</p>
-                  {sub && <p className="text-xs text-tertiary">{sub}</p>}
-                </div>
-              ))}
-            </div>
-            <div className="rounded-lg bg-[#FFFBEB] border border-[#FDE68A] p-3 text-[#92400E] flex items-start gap-2.5 text-body-sm">
-              <Icon name="info" size={18} className="shrink-0 mt-0.5" />
-              <p>
-                <strong>Award Notice:</strong> An award record shows funding, not that the study is currently active or
-                recruiting. Verify with the Principal Investigator.
-              </p>
-            </div>
-          </Card>
-
-          {project.team.length > 0 && (
-            <Card title="Investigative Team" icon="groups">
-              <div className="space-y-3">
-                {project.team.map((m) => (
-                  <div key={m.name} className="flex items-center justify-between gap-3 p-3.5 rounded-lg border border-surface-container-highest">
-                    <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-full bg-primary-fixed text-primary font-headline text-headline-sm flex items-center justify-center shrink-0">
-                        {m.name.replace("Dr. ", "").split(" ").map((w) => w[0]).slice(0, 2).join("")}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-label-lg font-bold">{m.name}</span>
-                          <span className="px-2 py-0.5 rounded bg-surface-container-high text-tertiary text-label-sm">{m.role}</span>
-                        </div>
-                        <p className="text-body-sm text-tertiary">
-                          {[m.department, m.college && COLLEGES[m.college].name].filter(Boolean).join(" • ")}
-                        </p>
-                      </div>
-                    </div>
-                    {hasResearcherProfile(m.researcherId) && (
-                      <Link
-                        href={`/researchers/${m.researcherId}`}
-                        className="px-3 py-1.5 rounded-lg border border-surface-container-highest text-label-md hover:bg-surface-container-low"
-                      >
-                        Faculty Profile
-                      </Link>
-                    )}
+      <div className="grid lg:grid-cols-[1.6fr_1fr] gap-12">
+        <div className="space-y-10">
+          <Section title="About this award">
+            <div className="space-y-4 text-body text-ink-2 max-w-[70ch]">
+              <p className="text-lead text-ink">{project.summary}</p>
+              {project.abstract.length > 0 && (
+                <details>
+                  <summary className="cursor-pointer text-small font-medium text-cherry">Read the full abstract</summary>
+                  <div className="space-y-4 mt-3">
+                    {project.abstract.map((para, i) => (
+                      <p key={i}>{para}</p>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </Card>
-          )}
+                </details>
+              )}
+            </div>
+          </Section>
 
           {related.length > 0 && (
-            <Card title="Related Projects Across Colleges" icon="hub">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {related.map((r) => (
-                  <Link
-                    key={r.id}
-                    href={`/projects/${r.id}`}
-                    className="relative overflow-hidden p-3.5 pt-4 rounded-lg border border-surface-container-highest hover:shadow-md transition-shadow flex flex-col justify-between"
-                  >
-                    <div className="absolute top-0 left-0 right-0 h-1" style={{ background: COLLEGES[r.colleges[0]]?.color ?? "#CBD5E1" }} />
-                    <h3 className="font-headline text-[16px] leading-snug font-bold mb-2">{r.title}</h3>
-                    <p className="text-body-sm text-tertiary pt-2 border-t border-surface-container-high">
-                      PI: <strong>{r.pi.name}</strong>
-                    </p>
-                  </Link>
+            <Section title="Related awards" subtitle="The same investigators' other awards, then similar topics">
+              <ul className="bg-surface border border-line rounded-xl px-5">
+                {related.map((p) => (
+                  <AwardRow key={p.id} project={p} />
                 ))}
-              </div>
-            </Card>
+              </ul>
+            </Section>
           )}
         </div>
 
-        <aside className="lg:col-span-4 flex flex-col gap-space-lg lg:sticky lg:top-20">
-          <section className="bg-[#EEF2FF] border border-[#C7D2FE] rounded-xl p-space-md">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="p-1 rounded bg-[#2F4FD1] text-white">
-                <Icon name="auto_awesome" size={18} />
-              </span>
-              <h2 className="font-headline text-[18px] text-[#1E1B4B] font-bold">Why this matches your search</h2>
-            </div>
-            <ul className="space-y-3 text-body-sm text-[#1E1B4B]">
-              {(project.match ? [project.match.reason] : [project.summary]).map((r) => (
-                <li key={r} className="flex items-start gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#2F4FD1] mt-2 shrink-0" />
-                  <div>
-                    <span>{r}</span>
-                    <span className="block mt-1 text-[11px] px-1.5 py-0.5 rounded bg-[#E0E7FF] text-[#2F4FD1] border border-[#C7D2FE] w-fit">
-                      Source: {project.source.label}
-                    </span>
+        <aside className="space-y-10">
+          {yearData.length > 0 && (
+            <Section title="Funding by year">
+              <YearBars
+                caption="Money obligated to this award by fiscal year"
+                series={[{ key: "amount", label: project.agency, color: funderColor }]}
+                data={yearData}
+                height={150}
+              />
+            </Section>
+          )}
+
+          <Section title="Team">
+            <ul className="bg-surface border border-line rounded-xl divide-y divide-line">
+              {project.team.map((m) => (
+                <li key={`${m.name}-${m.role}`} className="px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <Link href={`/search?q=${encodeURIComponent(m.name)}`} className="font-medium hover:text-cherry">
+                      {m.name}
+                    </Link>
+                    <span className="text-tiny text-ink-3">{m.role}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-2 text-tiny text-ink-3 mt-0.5">
+                    <CollegeTag id={m.college} />
+                    {m.department && <span>{m.department}</span>}
                   </div>
                 </li>
               ))}
             </ul>
-          </section>
+          </Section>
 
-          <Card title="Potential Collaborators" icon="person_add" aside={<span className="text-label-sm px-1.5 py-0.5 rounded bg-surface-container text-tertiary">AI Suggested</span>}>
-            <div className="space-y-3">
-              {matches.slice(0, 2).map((m) => (
-                <div key={m.researcherId} className="p-3 rounded-lg border border-surface-container-highest bg-surface-container-low">
-                  <div className="flex items-center justify-between">
-                    <span className="text-label-md font-bold">{m.name}</span>
-                    <span className="text-label-sm font-bold" style={{ color: COLLEGES[m.college].color }}>
-                      {m.score}% synergy
-                    </span>
-                  </div>
-                  <p className="text-xs text-on-surface-variant mt-0.5">
-                    {COLLEGES[m.college].name} • {m.title}
-                  </p>
-                  <p className="text-xs text-tertiary mt-1 italic">&ldquo;{m.reasons[0]}&rdquo;</p>
-                </div>
-              ))}
-            </div>
-            <Link
-              href="/matches"
-              className="mt-4 w-full bg-primary hover:bg-[#821A2B] text-on-primary py-2.5 rounded-lg text-label-md flex items-center justify-center gap-1.5"
-            >
-              <Icon name="send" size={18} />
-              See all matches
-            </Link>
-          </Card>
-
-          {project.students.skills.length > 0 && (
-            <Card title="For Students" icon="school">
-              <p className="text-label-sm text-on-surface-variant uppercase tracking-wider mb-1.5">Skills that help this lab</p>
-              <div className="flex flex-wrap gap-1 mb-3">
-                {project.students.skills.map((s) => (
-                  <span key={s} className="px-2 py-0.5 rounded bg-surface-container text-xs">{s}</span>
-                ))}
-              </div>
-              {project.students.notice && (
-                <div className="p-2.5 rounded bg-surface-container-low border border-surface-container-highest mb-3 text-xs text-tertiary">
-                  <strong className="text-on-surface">Active Lab Notice:</strong> {project.students.notice}
-                </div>
-              )}
-              <Link href="/pathways" className="inline-flex items-center gap-1 text-label-md text-primary font-semibold hover:underline">
-                Explore Student Research Pathway <Icon name="north_east" size={16} />
-              </Link>
-            </Card>
-          )}
+          <p className="text-small text-ink-3">
+            {project.students.notice} Record from{" "}
+            <a href={project.source.url} target="_blank" rel="noreferrer" className="text-cherry underline underline-offset-2">
+              {project.source.label}
+            </a>
+            , updated {shortDate(project.updatedAt)}. Latest-year amount: {money(project.amount)}.
+          </p>
         </aside>
       </div>
     </main>

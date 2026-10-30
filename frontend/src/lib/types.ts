@@ -1,4 +1,4 @@
-// API contract shared with the backend. See docs/api.md.
+// API contract shared with the backend (backend/app/models.py). See docs/api.md.
 
 export type CollegeId =
   | "medicine"
@@ -18,92 +18,59 @@ export interface Project {
   colleges: CollegeId[];
   verification: Verification;
   pi: { name: string; department: string };
-  funder: string; // e.g. "NIH R01"
+  funder: string; // e.g. "NIH R01", "NSF CBET"
+  agency: string; // NIH, NSF, CDC, AHRQ
+  active: boolean; // the funder's own flag; not proof a study is recruiting
+  amount: number | null; // obligated in the latest fiscal year
   startYear: number;
   endYear: number;
-  source: { label: string; url: string }; // e.g. NIH RePORTER
+  source: { label: string; url: string };
   updatedAt: string; // ISO date
-  /** Present only on search results: why the AI matched this project. */
-  match?: { reason: string; evidence: string[] };
+  /** Present only on search results: which stored fields matched the query. */
+  match?: { reason: string; evidence: string[] } | null;
 }
 
 export interface TeamMember {
-  researcherId?: string;
+  researcherId?: string | null;
   name: string;
   role: string;
   department: string;
   college: CollegeId | null; // null when the source record names no college
 }
 
+export interface YearAmount {
+  fiscalYear: number;
+  amount: number;
+}
+
+export interface TopicRef {
+  id: string;
+  name: string;
+}
+
 export interface ProjectDetail extends Project {
   abstract: string[]; // paragraphs
   methodologies: string[];
   funding: { agency: string; mechanism: string; period: string; total: string; awardNumber: string };
+  fundingByYear: YearAmount[];
+  topics: TopicRef[];
   team: TeamMember[];
   students: { skills: string[]; notice: string };
   relatedProjectIds: string[];
 }
 
-export interface Publication {
-  title: string;
-  authors: string;
-  venue: string;
-  year: number;
-  doi: string;
+export interface FacetValue {
+  value: string;
+  label: string;
+  count: number;
 }
 
-export interface ResearcherProfile {
-  id: string;
-  name: string;
-  initials: string;
-  title: string;
-  college: CollegeId | null;
-  department: string;
-  verified: boolean;
-  orcid?: string;
-  summary: string; // AI-synthesized
-  focus: string[];
-  about: string;
-  projectIds: string[];
-  publications: Publication[];
-  accepting?: string; // lab applicant notice, if taking students
+export interface Facets {
+  colleges: FacetValue[];
+  funders: FacetValue[];
+  status: FacetValue[];
+  topics: FacetValue[];
 }
-
-export interface CollaboratorMatch {
-  researcherId: string;
-  name: string;
-  initials: string;
-  college: CollegeId;
-  title: string;
-  score: number; // 0-100
-  reasons: string[];
-  citations: string[];
-  sharedTopics: string[];
-}
-
-export type OpportunityType = "research-assistant" | "fellowship" | "credit" | "volunteer";
-export type StudentLevel = "undergraduate" | "masters" | "phd";
-
-export interface Opportunity {
-  id: string;
-  title: string;
-  type: OpportunityType;
-  lab: string;
-  sponsor: string; // faculty sponsor name
-  projectId?: string;
-  colleges: CollegeId[];
-  description: string;
-  skills: string[];
-  levels: StudentLevel[];
-  paid: boolean;
-  hourlyRate?: number;
-  hoursPerWeek: string;
-  term: string;
-  deadline: string; // ISO date
-  verifiedByPI: boolean;
-}
-
-export type NewOpportunity = Omit<Opportunity, "id" | "verifiedByPI">;
 
 export interface SearchResponse {
   query: string;
@@ -112,12 +79,90 @@ export interface SearchResponse {
   page: number;
   pageSize: number;
   results: Project[];
+  facets: Facets;
 }
 
 export interface SearchParams {
   q: string;
   page?: number;
-  colleges?: CollegeId[];
+  colleges?: string[];
   funders?: string[];
-  verification?: Verification[];
+  status?: string[];
+  topics?: string[];
+}
+
+export interface Totals {
+  awards: number;
+  active: number;
+  researchers: number;
+  colleges: number;
+}
+
+export interface SourceSummary {
+  label: string;
+  url: string;
+  awards: number;
+  coverage: string;
+}
+
+export interface CollegeStat {
+  college: CollegeId;
+  awards: number;
+  active: number;
+  funding: number; // obligated FY2022 onward
+}
+
+export interface YearStat {
+  fiscalYear: number;
+  nih: number;
+  nsf: number;
+  other: number;
+  awards: number;
+  mayBeIncomplete: boolean;
+}
+
+export interface TopicSummary {
+  id: string;
+  name: string;
+  blurb: string;
+  image: string | null;
+  awards: number;
+  active: number;
+  funding: number;
+}
+
+export interface Overview {
+  totals: Totals;
+  sources: SourceSummary[];
+  updatedAt: string | null;
+  byCollege: CollegeStat[];
+  trend: YearStat[];
+  topics: TopicSummary[];
+  recent: Project[];
+  crossCollege: Project[];
+}
+
+export interface TopicPerson {
+  name: string;
+  college: CollegeId | null;
+  department: string;
+  awards: number;
+}
+
+export interface TopicDetail {
+  topic: TopicSummary;
+  funders: string[];
+  byCollege: CollegeStat[];
+  trend: YearStat[];
+  people: TopicPerson[];
+  projects: Project[];
+  related: TopicSummary[];
+}
+
+export interface AssistantSource {
+  n: number;
+  id: string;
+  title: string;
+  label: string;
+  url: string;
 }

@@ -1,24 +1,24 @@
 # Research Hub
 
-Temple ResearchConnect AI: a research discovery platform for finding projects, researchers and student opportunities across Temple University colleges. Built for the Temple AI Build Challenge (<https://ibit.temple.edu/aibuild/>; confirm current deadlines and requirements in the official guidelines).
+Temple ResearchConnect: a research discovery site that shows the federally funded research happening across Temple University colleges, built from public NIH and NSF award records. Built for the Temple AI Build Challenge (<https://ibit.temple.edu/aibuild/>; confirm current deadlines and requirements in the official guidelines).
 
 ## Status
 
 | Area | State |
 | --- | --- |
-| Frontend (`frontend/`) | Built. 10 routes, runs on mock data. |
-| Backend (`backend/`) | In progress. NIH and NSF ingestion, read and search endpoints, grounded assistant. |
-| API contract | Written: [docs/api.md](docs/api.md). Types: `frontend/src/lib/types.ts`. |
+| Frontend (`frontend/`) | v4 redesign: Home, Explore, Search, Topics, Award, Ask, About. All real data. |
+| Backend (`backend/`) | NIH and NSF ingestion, overview, topics, search with facets, grounded assistant. |
+| API contract | [docs/api.md](docs/api.md). Types: `frontend/src/lib/types.ts`. |
 
 ## Run the frontend
+
+Start the backend first (below), then:
 
 ```bash
 cd frontend
 npm install
-npm run dev   # http://localhost:3000
+npm run dev   # http://localhost:3000, talks to http://localhost:8000 (override with NEXT_PUBLIC_API_URL)
 ```
-
-With `NEXT_PUBLIC_API_URL` unset, the frontend serves mock data from `frontend/src/lib/mock.ts`. Set it (e.g. `http://localhost:8000`) and every call in `frontend/src/lib/api.ts` goes to the backend instead, with no other frontend change.
 
 ## Run the backend
 
@@ -37,18 +37,18 @@ College mapping lives in `backend/app/colleges.py`. Entries marked `APPROX` have
 
 | Route | Page | Backed by |
 | --- | --- | --- |
-| `/` | Home, featured projects | `GET /api/projects/featured` |
-| `/search?q=` | Search results with "why this matched" | `GET /api/search` |
-| `/projects/[id]` | Project detail | `GET /api/projects/:id`, `/api/projects?ids=` |
-| `/researchers/[id]` | Researcher profile | `GET /api/researchers/:id` |
-| `/matches` | Collaborator matches | `GET /api/researchers/:id/matches` |
-| `/opportunities` | Student opportunities board | `GET /api/opportunities` |
-| `/opportunities/new` | Faculty post form | `POST /api/opportunities` |
-| `/pathways` | Student pathways | Inline sample data (no endpoint yet) |
-| `/assistant` | Grounded chat | `POST /api/assistant` |
-| `/responsible-ai` | Policy page | Static |
+| `/` | Home: search, headline numbers, funding by college, top topics, newest awards | `GET /api/overview` |
+| `/explore` | Overview: colleges, funding by year, topics, cross-college teams, sources | `GET /api/overview` |
+| `/search` | Results with filters (status, college, funder, topic) and paging | `GET /api/search` |
+| `/topics`, `/topics/[id]` | Topic index and detail | `GET /api/topics`, `/api/topics/:id` |
+| `/projects/[id]` | Award: facts, funding by year, team, abstract, related awards | `GET /api/projects/:id`, `/api/projects?ids=` |
+| `/ask` | Grounded assistant with numbered sources | `POST /api/assistant` |
+| `/about` | Problem, audiences, sources, how it works, limits, responsible AI | `GET /api/overview` |
 
-Designs come from the Stitch project "ResearchConnect AI – Concept v3" (core flow) plus "Post a Student Opportunity" from "Concept v2". CV upload is out of scope for the MVP.
+Retired routes (`/opportunities`, `/pathways`, `/matches`, `/researchers`, `/responsible-ai`, `/assistant`) redirect to
+their replacements. Design system and images come from the Stitch project "ResearchConnect – v4 Data Redesign"; chart
+colors were checked with a palette validator (lightness, chroma, colorblind separation, contrast). Photos are
+AI-generated illustrations and say so in the footer.
 
 ## Backend plan
 
@@ -85,14 +85,12 @@ Check the Temple AI Build Challenge rules on approved AI providers and data hand
 - Use public data and synthetic profiles for the demo unless a faculty member has explicitly approved using theirs. Keep API keys and private data out of GitHub.
 - Include Lewis Katz School of Medicine research when it has a documented connection to another Temple unit.
 
-## Known gaps in the frontend
+## Known gaps
 
-- Only Dr. Rivera has a profile (`r-rivera`). Team and match cards link to a profile only when one exists.
-- `/matches` and "My Profile" are hard-wired to `r-rivera` until there is auth.
-- `/pathways` uses sample student data written into the page.
-- The search page has no filter sidebar yet; it needs the backend filters first.
-- Not pulled from the Stitch v2 designs: Faculty Profile Editor and Student Dashboard.
-- `/opportunities/new` is not scoped to the signed-in faculty member's projects.
+- Search is keyword-based; AI interpretation of natural-language questions is not built yet.
+- The assistant needs `ANTHROPIC_API_KEY` in `backend/.env`.
+- About 30 awards have no college (mostly NSF social-science awards whose PIs have no other awards).
+- The "Cancer" and several smaller topics have no photo and use a plain tile.
 
 ## Open questions
 

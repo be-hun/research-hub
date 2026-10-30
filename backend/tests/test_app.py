@@ -23,8 +23,9 @@ def own_fields(model: type) -> set[str]:
 
 
 def test_models_match_frontend_types():
-    for name in ["Project", "TeamMember", "ProjectDetail", "Publication", "ResearcherProfile",
-                 "CollaboratorMatch", "SearchResponse"]:
+    for name in ["Project", "TeamMember", "YearAmount", "TopicRef", "ProjectDetail", "FacetValue", "Facets",
+                 "SearchResponse", "Totals", "SourceSummary", "CollegeStat", "YearStat", "TopicSummary", "Overview",
+                 "TopicPerson", "TopicDetail", "AssistantSource"]:
         assert own_fields(getattr(models, name)) == ts_fields(name), name
 
 

@@ -5,6 +5,16 @@ type (e.g. "SCHOOLS OF MEDICINE") and a department. Edit these tables to change
 the mapping. Entries marked APPROX have no matching CollegeId yet and use the nearest one.
 """
 
+COLLEGE_NAMES = {
+    "medicine": "Lewis Katz School of Medicine",
+    "public-health": "College of Public Health",
+    "science-tech": "College of Science & Technology",
+    "engineering": "College of Engineering",
+    "education": "College of Education & Human Development",
+    "business": "Fox School of Business",
+    "media": "Klein College of Media and Communication",
+}
+
 # Department overrides win over organization type.
 DEPARTMENT_TO_COLLEGE = {
     "ENGINEERING (ALL TYPES)": "engineering",

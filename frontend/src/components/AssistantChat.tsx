@@ -1,28 +1,22 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
+import { API_URL } from "@/lib/api";
+import type { AssistantSource } from "@/lib/types";
 import Icon from "./Icon";
-
-interface Source {
-  n: number;
-  id: string;
-  title: string;
-  label: string;
-  url: string;
-}
 
 interface Message {
   role: "user" | "assistant";
   text: string;
-  sources?: Source[];
+  sources?: AssistantSource[];
   error?: boolean; // not sent back as conversation history
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
-
 const SUGGESTIONS = [
   "Who at Temple studies Alzheimer's disease, and what are they funded to do?",
-  "What substance use research is happening across Temple colleges?",
+  "What research on opioid addiction is happening across Temple colleges?",
+  "Which engineering awards work on batteries or energy storage?",
 ];
 
 export default function AssistantChat() {
@@ -37,42 +31,36 @@ export default function AssistantChat() {
     setMessages(next);
     setInput("");
     setBusy(true);
-    let reply: Message = {
-      role: "assistant",
-      text: "The assistant backend is not connected yet. Set NEXT_PUBLIC_API_URL to enable answers.",
-      error: true,
-    };
-    if (API_URL) {
-      try {
-        const history = next.filter((m) => !m.error).map(({ role, text }) => ({ role, text }));
-        const res = await fetch(`${API_URL}/api/assistant`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: history }),
-        });
-        const body = await res.json().catch(() => ({}));
-        reply = res.ok
-          ? { role: "assistant", text: body.reply, sources: body.sources }
-          : { role: "assistant", text: body.detail ?? "Something went wrong reaching the assistant. Try again.", error: true };
-      } catch {
-        reply = { role: "assistant", text: "Something went wrong reaching the assistant. Try again.", error: true };
-      }
+    let reply: Message;
+    try {
+      const history = next.filter((m) => !m.error).map(({ role, text }) => ({ role, text }));
+      const res = await fetch(`${API_URL}/api/assistant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: history }),
+      });
+      const body = await res.json().catch(() => ({}));
+      reply = res.ok
+        ? { role: "assistant", text: body.reply, sources: body.sources }
+        : { role: "assistant", text: body.detail ?? "Something went wrong reaching the assistant. Try again.", error: true };
+    } catch {
+      reply = { role: "assistant", text: "Something went wrong reaching the assistant. Try again.", error: true };
     }
     setMessages([...next, reply]);
     setBusy(false);
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="min-h-[320px] space-y-4">
+    <div className="flex flex-col gap-5">
+      <div className="min-h-[300px] space-y-5" aria-live="polite">
         {messages.length === 0 && (
           <div className="space-y-2">
-            <p className="text-body-sm text-tertiary">Try asking:</p>
+            <p className="text-small text-ink-3">Try asking</p>
             {SUGGESTIONS.map((s) => (
               <button
                 key={s}
                 onClick={() => send(s)}
-                className="block text-left bg-white border border-[#C7D2FE] hover:bg-[#EEF2FF] px-3 py-2 rounded-lg text-body-sm"
+                className="block w-full text-left bg-surface border border-line hover:border-cherry px-4 py-3 rounded-lg text-small"
               >
                 {s}
               </button>
@@ -81,26 +69,30 @@ export default function AssistantChat() {
         )}
         {messages.map((m, i) =>
           m.role === "user" ? (
-            <div key={i} className="ml-auto max-w-xl bg-primary-container text-white px-4 py-3 rounded-2xl text-body-md">
+            <div key={i} className="ml-auto max-w-xl bg-cherry text-white px-4 py-3 rounded-2xl rounded-br-md">
               {m.text}
             </div>
           ) : (
             <div key={i} className="flex gap-3">
-              <div className="w-8 h-8 rounded-lg bg-secondary text-white flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-lg bg-ink text-white flex items-center justify-center shrink-0" aria-hidden="true">
                 <Icon name="auto_awesome" size={18} />
               </div>
-              <div className="flex-1 bg-[#EEF2FF] border border-[#C7D2FE] rounded-2xl p-4 text-body-md text-[#1E1B4B]">
+              <div
+                className={`flex-1 border rounded-2xl rounded-tl-md p-4 ${m.error ? "bg-canvas border-line text-ink-2" : "bg-surface border-line"}`}
+              >
                 <p className="whitespace-pre-wrap">{m.text}</p>
                 {m.sources && m.sources.length > 0 && (
-                  <ol className="mt-3 pt-3 border-t border-[#C7D2FE] space-y-1 text-body-sm">
+                  <ol className="mt-4 pt-3 border-t border-line space-y-1.5 text-small">
                     {m.sources.map((s) => (
                       <li key={s.n} className="flex gap-2">
-                        <span className="font-semibold">[{s.n}]</span>
+                        <span className="font-semibold text-ink-3 num">[{s.n}]</span>
                         <span>
-                          <a href={`/projects/${s.id}`} className="underline hover:text-primary">{s.title}</a>
-                          {" · "}
-                          <a href={s.url} target="_blank" rel="noreferrer" className="text-tertiary hover:underline">
-                            {s.label}
+                          <Link href={`/projects/${s.id}`} className="text-ink hover:text-cherry underline underline-offset-2">
+                            {s.title}
+                          </Link>
+                          <span className="text-ink-3"> · </span>
+                          <a href={s.url} target="_blank" rel="noreferrer" className="text-ink-3 hover:underline">
+                            {s.label} ↗
                           </a>
                         </span>
                       </li>
@@ -111,27 +103,38 @@ export default function AssistantChat() {
             </div>
           ),
         )}
+        {busy && <p className="text-small text-ink-3 pl-11">Searching the records…</p>}
       </div>
       <form
         onSubmit={(e) => {
           e.preventDefault();
           send(input);
         }}
-        className="bg-white border border-[#CBD5E1] rounded-xl p-2.5 flex items-end gap-2 focus-within:border-secondary focus-within:ring-2 focus-within:ring-secondary/15"
+        className="bg-surface border border-line-strong rounded-xl p-2 flex items-end gap-2 focus-within:border-cherry shadow-card"
       >
+        <label htmlFor="ask" className="sr-only">
+          Your question
+        </label>
         <textarea
+          id="ask"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          maxLength={500}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              send(input);
+            }
+          }}
+          maxLength={1000}
           rows={2}
-          placeholder="Ask a question about Temple research…"
-          className="flex-1 resize-none border-0 p-1 text-body-sm focus:ring-0 focus:outline-none"
+          placeholder="Ask about research at Temple…"
+          className="flex-1 resize-none border-0 p-2 focus:outline-none bg-transparent"
         />
         <button
           type="submit"
           disabled={busy || !input.trim()}
-          className="bg-primary-container hover:bg-[#821A2B] text-white p-2 rounded-lg disabled:opacity-50"
-          aria-label="Send message"
+          className="bg-cherry hover:bg-cherry-dark text-white p-2.5 rounded-lg disabled:opacity-40"
+          aria-label="Send question"
         >
           <Icon name="arrow_upward" size={20} />
         </button>
