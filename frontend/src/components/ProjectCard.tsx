@@ -17,7 +17,7 @@ export default function ProjectCard({ project }: { project: Project }) {
 
   return (
     <article className="relative overflow-hidden bg-surface-container-lowest border border-[#E2E8F0] hover:border-[#CBD5E1] hover:shadow-md rounded-xl p-5 transition-all">
-      <div className="absolute top-0 left-0 right-0 h-1" style={{ background: lead.color }} />
+      <div className="absolute top-0 left-0 right-0 h-1" style={{ background: lead?.color ?? "#CBD5E1" }} />
 
       <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
         <div className="flex flex-wrap items-center gap-2">

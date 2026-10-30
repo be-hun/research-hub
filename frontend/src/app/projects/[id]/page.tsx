@@ -29,7 +29,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-gutter items-start">
         <div className="lg:col-span-8 flex flex-col gap-space-lg">
           <section className="relative overflow-hidden bg-surface-container-lowest rounded-xl border border-surface-container-highest p-space-lg">
-            <div className="absolute top-0 left-0 right-0 h-1" style={{ background: COLLEGES[project.colleges[0]].color }} />
+            <div className="absolute top-0 left-0 right-0 h-1" style={{ background: COLLEGES[project.colleges[0]]?.color ?? "#CBD5E1" }} />
             <div className="flex flex-wrap items-center gap-2 pt-1 mb-3">
               {project.colleges.map((c) => (
                 <CollegeChip key={c} id={c} />
@@ -120,7 +120,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
                           <span className="px-2 py-0.5 rounded bg-surface-container-high text-tertiary text-label-sm">{m.role}</span>
                         </div>
                         <p className="text-body-sm text-tertiary">
-                          {m.department} • {COLLEGES[m.college].name}
+                          {[m.department, m.college && COLLEGES[m.college].name].filter(Boolean).join(" • ")}
                         </p>
                       </div>
                     </div>
@@ -147,7 +147,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
                     href={`/projects/${r.id}`}
                     className="relative overflow-hidden p-3.5 pt-4 rounded-lg border border-surface-container-highest hover:shadow-md transition-shadow flex flex-col justify-between"
                   >
-                    <div className="absolute top-0 left-0 right-0 h-1" style={{ background: COLLEGES[r.colleges[0]].color }} />
+                    <div className="absolute top-0 left-0 right-0 h-1" style={{ background: COLLEGES[r.colleges[0]]?.color ?? "#CBD5E1" }} />
                     <h3 className="font-headline text-[16px] leading-snug font-bold mb-2">{r.title}</h3>
                     <p className="text-body-sm text-tertiary pt-2 border-t border-surface-container-high">
                       PI: <strong>{r.pi.name}</strong>

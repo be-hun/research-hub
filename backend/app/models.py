@@ -43,7 +43,7 @@ class TeamMember(BaseModel):
     name: str
     role: str
     department: str
-    college: CollegeId
+    college: CollegeId | None  # None when NIH gives no department to map
 
 
 class Funding(BaseModel):
@@ -81,7 +81,7 @@ class ResearcherProfile(BaseModel):
     name: str
     initials: str
     title: str
-    college: CollegeId
+    college: CollegeId | None
     department: str
     verified: bool
     orcid: str | None = None

@@ -32,7 +32,7 @@ export interface TeamMember {
   name: string;
   role: string;
   department: string;
-  college: CollegeId;
+  college: CollegeId | null; // null when the source record names no college
 }
 
 export interface ProjectDetail extends Project {
@@ -57,7 +57,7 @@ export interface ResearcherProfile {
   name: string;
   initials: string;
   title: string;
-  college: CollegeId;
+  college: CollegeId | null;
   department: string;
   verified: boolean;
   orcid?: string;

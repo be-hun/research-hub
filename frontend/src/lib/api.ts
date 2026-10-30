@@ -89,6 +89,7 @@ export function hasResearcherProfile(id?: string): boolean {
 export async function getCollaboratorMatches(researcherId: string): Promise<CollaboratorMatch[]> {
   if (API_URL) {
     const res = await fetch(`${API_URL}/api/researchers/${researcherId}/matches`, { cache: "no-store" });
+    if (res.status === 404) return []; // matches endpoint not built yet
     if (!res.ok) throw new Error(`Matches failed: ${res.status}`);
     return res.json();
   }
