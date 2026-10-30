@@ -7,7 +7,7 @@ Temple ResearchConnect AI: a research discovery platform for finding projects, r
 | Area | State |
 | --- | --- |
 | Frontend (`frontend/`) | Built. 10 routes, runs on mock data. |
-| Backend (`backend/`) | Not started. This is the next piece of work. |
+| Backend (`backend/`) | In progress. Schema and NIH RePORTER ingestion done; endpoints next. |
 | API contract | Written: [docs/api.md](docs/api.md). Types: `frontend/src/lib/types.ts`. |
 
 ## Run the frontend
@@ -19,6 +19,19 @@ npm run dev   # http://localhost:3000
 ```
 
 With `NEXT_PUBLIC_API_URL` unset, the frontend serves mock data from `frontend/src/lib/mock.ts`. Set it (e.g. `http://localhost:8000`) and every call in `frontend/src/lib/api.ts` goes to the backend instead, with no other frontend change.
+
+## Run the backend
+
+```bash
+cd backend
+uv sync
+uv run python -m ingest.nih_reporter            # fetch Temple NIH awards FY2022-2026 into data/hub.db
+uv run python -m ingest.nih_reporter --offline  # reload from the cached raw JSON, no API calls
+uv run uvicorn app.main:app --reload            # http://localhost:8000/health
+uv run pytest
+```
+
+College mapping lives in `backend/app/colleges.py`. Entries marked `APPROX` have no matching `CollegeId` yet.
 
 ## Pages
 
