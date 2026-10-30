@@ -3,3 +3,8 @@
 .env
 node_modules/
 __pycache__/
+
+# backend
+.venv/
+backend/data/
+.pytest_cache/
