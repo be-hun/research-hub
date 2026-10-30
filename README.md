@@ -19,5 +19,11 @@ Uses mock data until `NEXT_PUBLIC_API_URL` is set (e.g. `http://localhost:8000`)
 
 ## MVP scope
 
-Built: Home, Search Results. Placeholder routes: Project Detail, Researcher Profile, Collaborator Matches, Assistant, Pathways, Responsible AI.
+Pages: Home, Search Results, Project Detail, Researcher Profile, Collaborator Matches, Assistant, Student Pathways,
+Opportunities (board + post form), Responsible AI.
+
+Sources: Stitch "ResearchConnect AI – Concept v3" (core flow) plus "Post a Student Opportunity" from Concept v2.
 Out of scope: CV upload.
+
+Mock data lives in `frontend/src/lib/mock.ts`. Pathways uses sample student data inline in its page.
+Not pulled from v2 yet: Faculty Profile Editor, Student Dashboard, Opportunities Board layout.

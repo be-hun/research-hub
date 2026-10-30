@@ -4,6 +4,9 @@ import Icon from "./Icon";
 const NAV = [
   { href: "/", label: "Discover" },
   { href: "/pathways", label: "Pathways" },
+  { href: "/opportunities", label: "Opportunities" },
+  { href: "/matches", label: "Matches" },
+  { href: "/researchers/r-rivera", label: "My Profile" },
 ];
 
 export default function Header() {
