@@ -111,7 +111,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
           </Section>
 
           {related.length > 0 && (
-            <Section title="Related research" subtitle="The same people's other records, then similar topics">
+            <Section title="Related research">
               <ul className="bg-surface border border-line rounded-xl px-5">
                 {related.map((p) => (
                   <AwardRow key={p.id} project={p} />
@@ -143,7 +143,6 @@ export default async function ProjectPage({ params }: { params: { id: string } }
                   </li>
                 ))}
               </ul>
-              <p className="text-tiny text-ink-3 mt-2">Funding types are inferred from names.</p>
             </Section>
           )}
 
@@ -153,7 +152,10 @@ export default async function ProjectPage({ params }: { params: { id: string } }
               {project.team.map((m) => (
                 <li key={`${m.name}-${m.role}`} className="px-4 py-3">
                   <div className="flex items-center justify-between gap-3">
-                    <Link href={`/search?q=${encodeURIComponent(m.name)}`} className="font-medium hover:text-cherry">
+                    <Link
+                      href={m.researcherId ? `/researchers/${m.researcherId}` : `/search?q=${encodeURIComponent(m.name)}`}
+                      className="font-medium hover:text-cherry"
+                    >
                       {m.name}
                     </Link>
                     <span className="text-tiny text-ink-3">{m.role}</span>

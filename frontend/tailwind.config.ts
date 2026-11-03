@@ -18,6 +18,9 @@ const config: Config = {
         "cherry-tint": "#F8E9EC",
         "active-ink": "#1B6B44",
         "active-bg": "#E5F3EB",
+        // Identity and verification caveats. Ink on bg is 7:1.
+        "notice-ink": "#7A4B00",
+        "notice-bg": "#FDF4E3",
       },
       fontFamily: {
         serif: ["var(--font-serif)", "Georgia", "serif"],

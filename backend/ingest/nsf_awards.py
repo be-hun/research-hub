@@ -2,6 +2,7 @@
 
 import re
 import time
+from collections import defaultdict
 from datetime import datetime
 
 import httpx
@@ -95,15 +96,19 @@ def normalize(awards: list[dict]) -> dict:
     """Turn raw NSF awards into rows for each table. Pure: no I/O."""
     unique = {a["id"]: a for a in awards}
 
-    # PIs carry an NSF id; co-PIs don't. Reuse the PI id when a co-PI also leads another award.
-    pi_ids: dict[str, str] = {}
+    # PIs carry an NSF id; co-PIs don't. Reuse the PI id when a co-PI also leads another award, but only
+    # when exactly one NSF id carries that name: two PIs with the same name are two people.
+    ids_by_name: dict[str, set[str]] = defaultdict(set)
     for a in unique.values():
         name = _clean_name(f"{a.get('piFirstName', '')} {a.get('piLastName', '')}")
         if a.get("piId"):
-            pi_ids[name_key(name)] = f"r-nsf-{a['piId']}"
+            ids_by_name[name_key(name)].add(f"r-nsf-{a['piId']}")
 
-    def researcher_id(name: str) -> str:
-        return pi_ids.get(name_key(name)) or "r-nsf-" + name_key(name).replace(" ", "-")
+    def researcher_id(name: str, own_id: str | None = None) -> str:
+        if own_id:
+            return f"r-nsf-{own_id}"
+        ids = ids_by_name.get(name_key(name), set())
+        return next(iter(ids)) if len(ids) == 1 else "r-nsf-" + name_key(name).replace(" ", "-")
 
     projects, award_years, team, colleges, project_areas = [], [], [], [], []
     areas: dict[str, dict] = {}
@@ -168,11 +173,11 @@ def normalize(awards: list[dict]) -> dict:
         if college:
             colleges.append({"project_id": pid, "college": college})
 
-        people = [(_clean_name(f"{a.get('piFirstName', '')} {a.get('piLastName', '')}"), "PI")]
-        people += [(_co_pi_name(c), "Co-PI") for c in a.get("coPDPI") or []]
+        people = [(_clean_name(f"{a.get('piFirstName', '')} {a.get('piLastName', '')}"), "PI", a.get("piId"))]
+        people += [(_co_pi_name(c), "Co-PI", None) for c in a.get("coPDPI") or []]
         seen = set()
-        for position, (name, role) in enumerate(p for p in people if p[0]):
-            rid = researcher_id(name)
+        for position, (name, role, own_id) in enumerate(p for p in people if p[0]):
+            rid = researcher_id(name, own_id)
             if rid in seen:
                 continue
             seen.add(rid)

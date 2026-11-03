@@ -8,7 +8,7 @@ import StatTiles from "@/components/StatTiles";
 import TopicTile from "@/components/TopicTile";
 import { getOverview } from "@/lib/api";
 import { COLLEGES } from "@/lib/colleges";
-import { money, shortDate } from "@/lib/format";
+import { count, money, shortDate } from "@/lib/format";
 
 const EXAMPLES = ["machine learning", "battery energy storage", "opioid addiction", "Alzheimer's disease"];
 
@@ -26,8 +26,7 @@ export default async function HomePage() {
           </h1>
           <p className="text-lead text-ink-2 mt-4 mb-7 max-w-xl">
             {o.totals.awards.toLocaleString()} grants, {o.totals.trials.toLocaleString()} clinical trials and{" "}
-            {o.totals.publications.toLocaleString()} funded papers across {o.totals.colleges} colleges, each traceable to
-            its original public record.
+            {o.totals.publications.toLocaleString()} funded papers across {o.totals.colleges} colleges.
           </p>
           <SearchBar size="lg" placeholder="Try: machine learning in healthcare" />
           <div className="flex flex-wrap items-center gap-2 mt-4">
@@ -79,7 +78,7 @@ export default async function HomePage() {
                 color: COLLEGES[c.college].color,
                 value: c.funding,
                 valueLabel: money(c.funding),
-                detail: `${c.awards} grants · ${c.trials} trials · ${c.publications} papers`,
+                detail: [count(c.awards, "grant"), count(c.trials, "trial"), count(c.publications, "paper")].join(" · "),
               }))}
             />
           </Section>

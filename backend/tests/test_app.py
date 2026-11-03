@@ -25,10 +25,23 @@ def own_fields(model: type) -> set[str]:
 def test_models_match_frontend_types():
     for name in ["Project", "TeamMember", "YearAmount", "TopicRef", "Fact", "FunderRef", "ProjectDetail", "FacetValue",
                  "Facets", "SearchResponse", "Totals", "SourceSummary", "CollegeStat", "FundingTypeStat", "AgencyStat",
-                 "YearStat", "TopicSummary", "Overview", "TopicPerson", "TopicDetail", "AssistantSource"]:
+                 "YearStat", "TopicSummary", "Overview", "TopicPerson", "TopicDetail", "AssistantRecord", "PersonRecord", "PersonCounts", "AssistantPerson",
+                 "AssistantReply", "ResearcherCounts", "ResearcherProject", "ResearcherCollaborator", "ResearcherAlias",
+                 "ResearcherSource", "ResearcherFocus", "ResearcherProfile", "CollegeSummary", "CollegeTopic",
+                 "CollegeResearcher", "CollegePartner", "CollegeDashboard"]:
         assert own_fields(getattr(models, name)) == ts_fields(name), name
 
 
 def test_health():
     client = TestClient(create_app(":memory:"))
     assert client.get("/health").json() == {"ok": True}
+    assert client.get("/api/health").json() == {"ok": True}
+
+
+def test_assistant_rate_limit():
+    client = TestClient(create_app(":memory:"))
+    body = {"messages": [{"role": "user", "text": "test"}]}
+    for _ in range(5):
+        response = client.post("/api/assistant", json=body)
+        assert response.status_code in (200, 503)
+    assert client.post("/api/assistant", json=body).status_code == 429

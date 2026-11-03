@@ -1,4 +1,15 @@
-import type { Overview, Project, ProjectDetail, SearchParams, SearchResponse, TopicDetail, TopicSummary } from "./types";
+import type {
+  CollegeDashboard,
+  CollegeSummary,
+  Overview,
+  Project,
+  ProjectDetail,
+  ResearcherProfile,
+  SearchParams,
+  SearchResponse,
+  TopicDetail,
+  TopicSummary,
+} from "./types";
 
 // The backend API (see backend/ and docs/api.md).
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -36,3 +47,6 @@ export const getTopic = (id: string) => getOrNull<TopicDetail>(`/api/topics/${en
 export const getProject = (id: string) => getOrNull<ProjectDetail>(`/api/projects/${encodeURIComponent(id)}`);
 export const getProjects = (ids: string[]) =>
   ids.length ? get<Project[]>(`/api/projects?ids=${ids.map(encodeURIComponent).join(",")}`) : Promise.resolve([]);
+export const getResearcher = (id: string) => getOrNull<ResearcherProfile>(`/api/researchers/${encodeURIComponent(id)}`);
+export const getColleges = () => get<CollegeSummary[]>("/api/colleges");
+export const getCollege = (id: string) => getOrNull<CollegeDashboard>(`/api/colleges/${encodeURIComponent(id)}`);

@@ -9,49 +9,40 @@ import { shortDate } from "@/lib/format";
 export const metadata: Metadata = { title: "About the data" };
 
 const AUDIENCES = [
-  {
-    title: "Students",
-    text: "Find who works on a topic you care about, in any college, and read what they are funded to do.",
-  },
-  {
-    title: "Faculty",
-    text: "See who outside your own college works near your area: possible collaborators you would not otherwise meet.",
-  },
-  {
-    title: "Staff and leadership",
-    text: "Get an honest overview of Temple's research by college, topic, funder and year.",
-  },
+  { title: "Students", text: "Find who works on what, in any college." },
+  { title: "Faculty", text: "Find collaborators outside your own college." },
+  { title: "Staff and leadership", text: "See research by college, topic, funder and year." },
 ];
 
 const STEPS = [
-  ["Public records", "Federal grants (NIH, NSF, USAspending), clinical trials (ClinicalTrials.gov) and funded publications (OpenAlex)."],
-  ["Import and clean", "A script pulls Temple's records, removes duplicates, maps each to a college, topic and funding type, and keeps a link to the original."],
-  ["Searchable database", "Search, filters, counts and charts are ordinary database queries. No AI is involved in any number you see."],
-  ["Ask", "For a question, the assistant first searches the records, then writes an answer only from those records, citing each one."],
+  ["Public records", "Grants (NIH, NSF, USAspending), trials (ClinicalTrials.gov) and papers (OpenAlex)."],
+  ["Import and clean", "Deduplicated, mapped to colleges, topics and funding types, linked to the original."],
+  ["Database", "Search, filters, counts and charts are plain queries. No AI in any number."],
+  ["Ask", "The assistant searches the records first and answers only from them."],
 ];
 
 const LIMITS = [
-  "A grant record is funding history. It does not show that a study is active, recruiting, or taking students.",
-  "A trial's status (\"Recruiting\") is what the study team last reported to ClinicalTrials.gov, and can be out of date.",
-  "Industry contracts, internal Temple funds and most foundation grants are not public. They appear only when a trial or paper names them as a sponsor or funder.",
-  "Publications cover 2024 onward, and only articles that report a funder. Unfunded work, books and older papers are missing.",
-  "Funding types (federal, industry, foundation, Temple…) are inferred from funder and sponsor names by fixed rules, and can be wrong.",
-  "USAspending includes some training and service grants alongside research grants.",
-  "Colleges come from NIH departments, publication and trial affiliations, or, least reliably, the NSF directorate or the trial site.",
-  "People are matched across sources by first and last name, so two people with the same name can be merged.",
-  "Topics come from the institute that funded a grant; for trials and papers they are matched by words in the title, which is less exact.",
-  "The most recent fiscal year may be incomplete while the funders are still publishing records.",
+  "Grant records show funding, not whether a study is active or taking students.",
+  "Trial statuses come from ClinicalTrials.gov and can be out of date.",
+  "Industry and foundation money only shows up when a trial or paper names it.",
+  "Papers: 2024 onward, funded articles only.",
+  "Funding types are matched from funder names and can be wrong.",
+  "USAspending includes some training and service grants.",
+  "Colleges for NSF grants and trial sites are approximate.",
+  "People are matched by name, so two people with the same name can merge.",
+  "Trial and paper topics are matched by title keywords.",
+  "The latest fiscal year may be incomplete.",
 ];
 
 const AI_DOES = [
-  "Answers only from the grants, trials and papers it retrieved for your question, and numbers a source for every claim.",
-  "Says plainly when no record matches, instead of guessing.",
-  "Drops any citation that does not point to a record it was given.",
+  "Answers only from the records it retrieved, and cites them.",
+  "Says when nothing matches.",
+  "Drops people and records it wasn't given.",
 ];
 const AI_DOES_NOT = [
   "Invent projects, people, amounts or findings.",
-  "Store or use emails, student records or any private data. Everything here is public.",
-  "Decide what you see in search, filters, counts or charts.",
+  "Use private data. Everything here is public.",
+  "Affect search, filters, counts or charts.",
 ];
 
 export default async function AboutPage() {
@@ -63,9 +54,8 @@ export default async function AboutPage() {
         <div>
           <h1 className="text-h1">About ResearchConnect</h1>
           <p className="text-lead text-ink-2 mt-3">
-            Research at Temple is spread across many schools and colleges. Unless you already know who to ask, it is
-            hard to see what is happening outside your own department. ResearchConnect puts Temple&apos;s public research
-            funding in one place, so anyone can see who works on what, and check it against the original record.
+            Temple&apos;s research is spread across many colleges and hard to see from outside your department.
+            ResearchConnect puts it in one place: who works on what, linked to the original records.
           </p>
         </div>
         <div className="relative aspect-[4/3] rounded-2xl overflow-hidden shadow-card">
@@ -93,8 +83,8 @@ export default async function AboutPage() {
       <Section id="sources" title="Where the data comes from">
         <SourceCards sources={o.sources} />
         <p className="text-small text-ink-3 mt-3">
-          {o.updatedAt ? `Last imported ${shortDate(o.updatedAt)}. ` : ""}Planned, not yet included: faculty-confirmed
-          profiles, older publications and Temple&apos;s institutional repository (TUScholarShare).
+          {o.updatedAt ? `Last imported ${shortDate(o.updatedAt)}. ` : ""}Not yet included: faculty-confirmed profiles,
+          older papers, TUScholarShare.
         </p>
       </Section>
 
@@ -140,16 +130,14 @@ export default async function AboutPage() {
           </div>
         </div>
         <p className="text-small text-ink-3 mt-4 max-w-3xl">
-          Human oversight: every answer, search result and chart links back to the original federal record, so a person
-          can check it. The AI model is called only from the server, behind one module that can be swapped for another
-          provider.
+          Every answer, result and chart links to its original record. The AI model runs only on the server.
         </p>
       </Section>
 
       <Section title="Questions or corrections">
         <p className="text-body text-ink-2 max-w-3xl">
-          ResearchConnect is a student prototype for the Temple AI Build Challenge, not an official Temple University
-          record. If something looks wrong, the source link on each award is the authority.{" "}
+          A student prototype for the Temple AI Build Challenge, not an official Temple record. If something looks
+          wrong, the source link on each record wins.{" "}
           <Link href="/explore" className="text-cherry underline underline-offset-2">
             Explore the data
           </Link>

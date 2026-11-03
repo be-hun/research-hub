@@ -15,6 +15,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 from app import config
+from app.backup import create_backup
 from app.db import connect, init_schema
 from ingest import clinical_trials, nih_reporter, nsf_awards, openalex, usaspending
 from ingest.load import load, merge
@@ -52,6 +53,8 @@ def report(conn: sqlite3.Connection, data: dict) -> str:
     by_kind = conn.execute("SELECT kind, COUNT(*), SUM(is_active) FROM projects GROUP BY kind").fetchall()
     by_type = conn.execute("""SELECT category, COUNT(DISTINCT project_id) FROM project_funders
                               GROUP BY category ORDER BY 2 DESC""").fetchall()
+    confidence = dict(conn.execute("SELECT identity_confidence, COUNT(*) FROM researchers GROUP BY 1").fetchall())
+    merged = count("SELECT COUNT(*) FROM researcher_aliases WHERE evidence = 'same-name-across-sources'")
     return "\n".join([
         f"records:        {count('SELECT COUNT(*) FROM projects')} ({', '.join(f'{s} {n}' for s, n in by_source)})",
         "  by kind:      " + ", ".join(f"{k} {n} ({a} active)" for k, n, a in by_kind),
@@ -59,6 +62,10 @@ def report(conn: sqlite3.Connection, data: dict) -> str:
         f"  with topic:   {count('SELECT COUNT(DISTINCT project_id) FROM project_topics')}",
         f"award years:    {count('SELECT COUNT(*) FROM award_years')}",
         f"researchers:    {count('SELECT COUNT(*) FROM researchers')} ({shared} found in more than one source)",
+        "identity review:",
+        f"  high:         {confidence.get('high', 0)} (one source person ID)",
+        f"  medium:       {confidence.get('medium', 0)} (matched by name within one source)",
+        f"  low:          {confidence.get('low', 0)} (combined across sources by name; {merged} merged identities)",
         f"research areas: {count('SELECT COUNT(*) FROM research_areas')}",
         f"no abstract:    {count('SELECT COUNT(*) FROM projects WHERE length(abstract) = 0')}",
         f"no college:     {len(data['unmapped_project_ids'])}",
@@ -70,10 +77,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--years", default="2022-2026", help="NIH fiscal years, e.g. 2022-2026 or 2024,2025")
     parser.add_argument("--offline", action="store_true", help="load from the cached raw JSON instead of the APIs")
+    parser.add_argument("--no-backup", action="store_true", help="skip the pre-import SQLite backup")
     parser.add_argument("--publications-from", type=int, default=2024, help="first publication year (default 2024)")
     args = parser.parse_args()
 
     years = parse_years(args.years)
+    if config.DB_PATH.exists() and not args.no_backup:
+        print(f"backup: {create_backup(config.DB_PATH, config.BACKEND_DIR / 'data' / 'backups')}")
     conn = connect(config.DB_PATH)
     init_schema(conn)
     run_id = conn.execute(

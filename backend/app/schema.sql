@@ -74,7 +74,26 @@ CREATE TABLE IF NOT EXISTS researchers (
     source          TEXT NOT NULL,
     verification    TEXT NOT NULL CHECK (verification IN (
                         'faculty-confirmed', 'public-award-record', 'public-registry-record', 'public-publication-record')),
-    updated_at      TEXT NOT NULL
+    updated_at      TEXT NOT NULL,
+    -- How sure we are that every record on this profile is the same person (see ingest/load.py):
+    -- high = one source identity with that source's own person ID; medium = one source identity matched by name
+    -- within that source; low = identities from several sources combined by name alone.
+    identity_confidence TEXT NOT NULL DEFAULT 'low' CHECK (identity_confidence IN ('high', 'medium', 'low')),
+    orcid           TEXT
+);
+
+-- Every source identity folded into a researcher, with the evidence for the match. Nothing is discarded,
+-- so a merged profile can always be traced (and later split) back to the source records.
+CREATE TABLE IF NOT EXISTS researcher_aliases (
+    researcher_id   TEXT NOT NULL REFERENCES researchers(id) ON DELETE CASCADE,
+    source_researcher_id TEXT NOT NULL,        -- the id the source's own rows used, e.g. r-nsf-111
+    source          TEXT NOT NULL,
+    source_person_id TEXT,                     -- the source's person ID, when it has one
+    source_name     TEXT NOT NULL,             -- the name as that source spelled it
+    confidence      TEXT NOT NULL CHECK (confidence IN ('high', 'medium', 'low')),
+    evidence        TEXT NOT NULL,             -- source-person-id | name-within-source | same-name-across-sources
+    last_seen       TEXT,                      -- latest updated_at among that source's rows for the person
+    PRIMARY KEY (researcher_id, source_researcher_id)
 );
 
 CREATE TABLE IF NOT EXISTS project_team (
@@ -119,3 +138,11 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
     projects_loaded INTEGER,
     error           TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_project_team_researcher ON project_team(researcher_id);
+CREATE INDEX IF NOT EXISTS idx_project_team_project ON project_team(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_colleges_college ON project_colleges(college);
+CREATE INDEX IF NOT EXISTS idx_project_topics_topic ON project_topics(topic_id);
+CREATE INDEX IF NOT EXISTS idx_projects_kind_active ON projects(kind, is_active);
+CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at);
+CREATE INDEX IF NOT EXISTS idx_researchers_college ON researchers(college);

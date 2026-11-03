@@ -9,10 +9,11 @@ import os
 
 from app import config  # noqa: F401  (loads backend/.env before the settings below are read)
 
-PROVIDER = os.environ.get("AI_PROVIDER", "gemini").lower()
+PROVIDER = os.environ.get("AI_PROVIDER", "anthropic").lower()
 DEFAULT_MODELS = {"gemini": "gemini-3.5-flash-lite", "anthropic": "claude-opus-5-5"}
 MODEL = os.environ.get("AI_MODEL") or DEFAULT_MODELS.get(PROVIDER, "")
 EFFORT = os.environ.get("AI_EFFORT", "medium")  # Anthropic only: low | medium | high | xhigh | max
+TIMEOUT_SECONDS = float(os.environ.get("AI_TIMEOUT_SECONDS", "30"))
 
 ANSWER_SCHEMA = {
     "type": "object",
@@ -21,17 +22,50 @@ ANSWER_SCHEMA = {
             "type": "boolean",
             "description": "False when the provided records do not contain the answer.",
         },
-        "answer": {"type": "string"},
-        "cited_records": {
+        "mode": {
+            "type": "string",
+            "enum": ["people", "research"],
+            "description": "people: the user wants to find researchers. research: the user wants to know about the work.",
+        },
+        "summary": {"type": "string", "description": "One or two short sentences, at most 40 words, citing [n]."},
+        "records": {
             "type": "array",
-            "items": {"type": "integer"},
-            "description": "Numbers of the records the answer relies on.",
+            "description": "research mode: the most relevant records, best first. people mode: empty.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "record": {"type": "integer"},
+                    "takeaway": {"type": "string", "description": "At most 15 words: what it is and why it matters here."},
+                },
+                "required": ["record", "takeaway"],
+                "additionalProperties": False,
+            },
+        },
+        "people": {
+            "type": "array",
+            "description": "people mode: the most relevant Temple researchers, best first. research mode: empty.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Exactly as written in a record."},
+                    "focus": {"type": "string", "description": "At most 10 words: what they work on."},
+                    "records": {"type": "array", "items": {"type": "integer"}},
+                },
+                "required": ["name", "focus", "records"],
+                "additionalProperties": False,
+            },
+        },
+        "follow_ups": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Three short follow-up questions, at most 10 words each, that these records could help answer.",
         },
     },
-    "required": ["answerable", "answer", "cited_records"],
+    "required": ["answerable", "mode", "summary", "records", "people", "follow_ups"],
 }
 
-DECLINED = {"answerable": False, "answer": "I can't help with that request.", "cited_records": []}
+DECLINED = {"answerable": False, "mode": "research", "summary": "I can't help with that request.",
+            "records": [], "people": [], "follow_ups": []}
 
 
 class AIUnavailable(Exception):
@@ -39,7 +73,7 @@ class AIUnavailable(Exception):
 
 
 def grounded_answer(system: str, messages: list[dict]) -> dict:
-    """Return {"answerable", "answer", "cited_records"}, or answerable=False if the model declines.
+    """Return a dict shaped like ANSWER_SCHEMA, or answerable=False if the model declines.
 
     messages: [{"role": "user" | "assistant", "content": str}, ...], ending with the user.
     """
@@ -48,6 +82,19 @@ def grounded_answer(system: str, messages: list[dict]) -> dict:
     if PROVIDER == "anthropic":
         return _anthropic(system, messages)
     raise AIUnavailable(f"Unknown AI_PROVIDER '{PROVIDER}'. Use 'gemini' or 'anthropic'.")
+
+
+def _validate_response(value: object) -> dict:
+    if not isinstance(value, dict):
+        raise AIUnavailable("The assistant returned an unexpected answer. Try again.")
+    required = {"answerable", "mode", "summary", "records", "people", "follow_ups"}
+    if not required.issubset(value) or not isinstance(value["summary"], str):
+        raise AIUnavailable("The assistant returned an incomplete answer. Try again.")
+    if value["mode"] not in ("people", "research"):
+        raise AIUnavailable("The assistant returned an invalid answer mode. Try again.")
+    if not all(isinstance(value[key], list) for key in ("records", "people", "follow_ups")):
+        raise AIUnavailable("The assistant returned an invalid answer. Try again.")
+    return value
 
 
 # ---------- Gemini ----------
@@ -118,7 +165,7 @@ def _gemini(system: str, messages: list[dict]) -> dict:
     if not response.text:
         raise AIUnavailable("The assistant returned an empty answer.")
     try:
-        return json.loads(response.text)
+        return _validate_response(json.loads(response.text))
     except json.JSONDecodeError as exc:
         raise AIUnavailable("The assistant returned an answer in an unexpected format. Try again.") from exc
 
@@ -140,6 +187,7 @@ def _anthropic(system: str, messages: list[dict]) -> dict:
             max_tokens=16000,
             system=system,
             messages=messages,
+            timeout=TIMEOUT_SECONDS,
             output_config={
                 "effort": EFFORT,
                 "format": {"type": "json_schema", "schema": {**ANSWER_SCHEMA, "additionalProperties": False}},
@@ -171,4 +219,4 @@ def _anthropic(system: str, messages: list[dict]) -> dict:
     text = next((b.text for b in response.content if b.type == "text"), None)
     if text is None:
         raise AIUnavailable("The assistant returned an empty answer.")
-    return json.loads(text)
+    return _validate_response(json.loads(text))

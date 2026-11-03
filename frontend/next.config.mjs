@@ -8,7 +8,6 @@ const nextConfig = {
       { source: "/opportunities/:path*", destination: "/explore", permanent: false },
       { source: "/pathways", destination: "/topics", permanent: false },
       { source: "/matches", destination: "/explore", permanent: false },
-      { source: "/researchers/:path*", destination: "/explore", permanent: false },
     ];
   },
 };

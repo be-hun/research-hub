@@ -1,13 +1,14 @@
 """Merge normalized rows from every source and load them in one transaction."""
 
+import re
 import sqlite3
 from collections import Counter, defaultdict
 
 from app.topics import AREA_TO_TOPIC, topics_from_text
 from ingest.text import name_key
 
-TABLES = ("projects", "award_years", "project_colleges", "project_funders", "researchers", "project_team",
-          "research_areas", "project_areas", "project_topics")
+TABLES = ("projects", "award_years", "project_colleges", "project_funders", "researchers", "researcher_aliases",
+          "project_team", "research_areas", "project_areas", "project_topics")
 # When the same person appears in several sources, keep the record from the first source listed.
 SOURCE_PRIORITY = ("nih-reporter", "nsf-awards", "clinicaltrials-gov", "openalex", "usaspending")
 # Sources whose college comes from a guess (funding directorate, trial site) rather than a named unit.
@@ -37,8 +38,61 @@ def _drop_duplicate_awards(data: dict) -> None:
             data[table] = [r for r in data[table] if r["project_id"] not in dupes]
 
 
+# Researcher ids a source builds from its own person ID; any other id was built from the name.
+SOURCE_ID_PATTERNS = {
+    "nih-reporter": re.compile(r"^r-nih-(\d+)$"),
+    "nsf-awards": re.compile(r"^r-nsf-(\d+)$"),
+    "openalex": re.compile(r"^r-oa-(A\d+)$"),
+}
+CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
+
+
+def source_person_id(researcher: dict) -> str | None:
+    """The source's own ID for this person, or None when the source only gave a name."""
+    pattern = SOURCE_ID_PATTERNS.get(researcher["source"])
+    match = pattern.match(researcher["id"]) if pattern else None
+    return match.group(1) if match else None
+
+
+def _identity(data: dict, alias: dict[str, str]) -> None:
+    """Record every source identity behind each researcher, with its evidence, and rate the profile.
+
+    The cross-source name merge above is the existing behavior and is kept as is; this step makes it
+    visible. A profile is only `high` when one source identity with that source's own person ID backs it.
+    """
+    last_seen: dict[str, str] = {}
+    updated = {p["id"]: p.get("updated_at") or "" for p in data["projects"]}
+    for m in data["project_team"]:
+        rid = m.get("_source_researcher_id")
+        if rid:
+            last_seen[rid] = max(last_seen.get(rid, ""), updated.get(m["project_id"], ""))
+    rows: dict[str, list[dict]] = defaultdict(list)
+    for r in data["_all_researchers"]:
+        pid = source_person_id(r)
+        merged = r["id"] in alias
+        rows[alias.get(r["id"], r["id"])].append({
+            "researcher_id": alias.get(r["id"], r["id"]),
+            "source_researcher_id": r["id"],
+            "source": r["source"],
+            "source_person_id": pid,
+            "source_name": r["name"],
+            "confidence": "low" if merged else "high" if pid else "medium",
+            "evidence": "same-name-across-sources" if merged else "source-person-id" if pid else "name-within-source",
+            "last_seen": last_seen.get(r["id"]) or r.get("updated_at") or None,
+        })
+    data["researcher_aliases"] = [a for group in rows.values() for a in group]
+    for r in data["researchers"]:
+        group = rows.get(r["id"], [])
+        r["identity_confidence"] = min((a["confidence"] for a in group), key=CONFIDENCE_RANK.get, default="low")
+        r.setdefault("orcid", None)
+
+
 def merge(datasets: list[dict]) -> dict:
-    """Combine sources and merge researchers that appear in more than one (same first and last name)."""
+    """Combine sources and merge researchers that appear in more than one (same first and last name).
+
+    Name-only merging is the pre-existing behavior; every merge is recorded in researcher_aliases with
+    `same-name-across-sources` evidence and the profile is labeled low confidence.
+    """
     data = {t: [row for d in datasets for row in d.get(t, [])] for t in TABLES}
     _fill_award_defaults(data)
     _drop_duplicate_awards(data)
@@ -55,8 +109,10 @@ def merge(datasets: list[dict]) -> dict:
                 canonical[key]["_affiliation_college"] = r["_affiliation_college"]
         else:
             canonical.setdefault(key, r)
+    data["_all_researchers"] = list(data["researchers"])
     data["researchers"] = [r for r in data["researchers"] if r["id"] not in alias]
     for member in data["project_team"]:
+        member["_source_researcher_id"] = member["researcher_id"]
         member["researcher_id"] = alias.get(member["researcher_id"], member["researcher_id"])
     # A person can appear twice on one record after merging; keep the first.
     seen: set[tuple] = set()
@@ -67,6 +123,10 @@ def merge(datasets: list[dict]) -> dict:
             seen.add(key)
             team.append(m)
     data["project_team"] = team
+    _identity(data, alias)
+    del data["_all_researchers"]
+    for m in data["project_team"]:
+        m.pop("_source_researcher_id", None)
 
     data["research_areas"] = list({a["id"]: a for a in data["research_areas"]}.values())
     data["project_colleges"] = list({(c["project_id"], c["college"]): c for c in data["project_colleges"]}.values())

@@ -28,7 +28,16 @@ function Meta({ project }: { project: Project }) {
 }
 
 /** One record (grant, trial or publication) as a compact row. Used by search, topic and explore lists. */
-export default function AwardRow({ project, showSummary = false }: { project: Project; showSummary?: boolean }) {
+export default function AwardRow({
+  project,
+  showSummary = false,
+  context,
+}: {
+  project: Project;
+  showSummary?: boolean;
+  /** Extra line under the people line, e.g. the profile owner's role on this record. */
+  context?: string;
+}) {
   const people =
     project.kind === "trial" ? `Sponsor: ${project.funder}` : project.pi.name + (project.pi.department ? ` · ${project.pi.department}` : "");
   return (
@@ -47,6 +56,7 @@ export default function AwardRow({ project, showSummary = false }: { project: Pr
             </Link>
           </h3>
           {people.trim() && <p className="text-small text-ink-3 mt-1 truncate">{people}</p>}
+          {context && <p className="text-tiny text-ink-2 mt-1">{context}</p>}
           {showSummary && <p className="text-small text-ink-2 mt-2 line-clamp-2">{project.summary}</p>}
           {project.kind !== "award" && project.fundingTypes.length > 0 && (
             <p className="text-tiny text-ink-3 mt-1.5">Funding: {project.fundingTypes.join(" · ")}</p>

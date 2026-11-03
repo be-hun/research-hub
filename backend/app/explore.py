@@ -89,6 +89,11 @@ def _trend(conn: sqlite3.Connection, ids: list[str]) -> list[models.YearStat]:
         WHERE ay.fiscal_year >= ? AND ay.project_id IN ({_marks(ids)})
         GROUP BY ay.fiscal_year, p.agency
     """, [TREND_START] + ids).fetchall()
+    return trend_from_rows(rows)
+
+
+def trend_from_rows(rows: list[sqlite3.Row]) -> list[models.YearStat]:
+    """Rows of (fy, agency, amount, awards) to one YearStat per fiscal year."""
     years: dict[int, dict] = defaultdict(lambda: {"nih": 0, "nsf": 0, "other": 0, "awards": 0})
     for r in rows:
         key = r["agency"].lower() if r["agency"] in ("NIH", "NSF") else "other"
@@ -153,26 +158,35 @@ def _cross_college_ids(conn: sqlite3.Connection, limit: int) -> list[str]:
     """, (limit,))]
 
 
+def source_summaries(conn: sqlite3.Connection, counts: dict[str, int]) -> list[models.SourceSummary]:
+    """One SourceSummary per source with records, given record counts per source id."""
+    out = []
+    for source, (label, url, kind_label, coverage) in SOURCE_INFO.items():
+        if not counts.get(source):
+            continue
+        if coverage is None:
+            lo, hi = conn.execute("""SELECT MIN(fiscal_year), MAX(fiscal_year) FROM award_years ay
+                                     JOIN projects p ON p.id = ay.project_id WHERE p.source = ?""", (source,)).fetchone()
+            coverage = f"Fiscal years {lo}–{hi}"
+        out.append(models.SourceSummary(label=label, url=url, records=counts[source], kind=kind_label, coverage=coverage))
+    return out
+
+
+def last_updated(conn: sqlite3.Connection) -> str | None:
+    finished = conn.execute(
+        "SELECT finished_at FROM ingest_runs WHERE error IS NULL AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    return finished["finished_at"][:10] if finished else None
+
+
 def overview(conn: sqlite3.Connection) -> models.Overview:
     kinds = _ids_by_kind(conn)
     funding = _funding(conn)
     by_project = _topics_by_project(conn)
     count = lambda sql, *a: conn.execute(sql, a).fetchone()[0]
 
-    sources = []
-    for source, (label, url, kind_label, coverage) in SOURCE_INFO.items():
-        n = count(f"SELECT COUNT(*) FROM projects p WHERE p.source = ? AND {PARENT_ONLY}", source)
-        if not n:
-            continue
-        if coverage is None:
-            lo, hi = conn.execute("""SELECT MIN(fiscal_year), MAX(fiscal_year) FROM award_years ay
-                                     JOIN projects p ON p.id = ay.project_id WHERE p.source = ?""", (source,)).fetchone()
-            coverage = f"Fiscal years {lo}–{hi}"
-        sources.append(models.SourceSummary(label=label, url=url, records=n, kind=kind_label, coverage=coverage))
-
-    finished = conn.execute(
-        "SELECT finished_at FROM ingest_runs WHERE error IS NULL AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1"
-    ).fetchone()
+    counts = {r["source"]: r["n"] for r in conn.execute(
+        f"SELECT p.source, COUNT(*) AS n FROM projects p WHERE {PARENT_ONLY} GROUP BY p.source")}
     cross = _cross_college_ids(conn, 6)
     cross_rows = _rows(conn, cross, "latest_fy DESC", 6)
     cross_rows.sort(key=lambda r: cross.index(r["id"]))
@@ -188,8 +202,8 @@ def overview(conn: sqlite3.Connection) -> models.Overview:
             researchers=count("SELECT COUNT(*) FROM researchers"),
             colleges=count("SELECT COUNT(DISTINCT college) FROM project_colleges"),
         ),
-        sources=sources,
-        updatedAt=finished["finished_at"][:10] if finished else None,
+        sources=source_summaries(conn, counts),
+        updatedAt=last_updated(conn),
         byCollege=_college_stats(conn, kinds, funding),
         fundingTypes=_funding_types(conn, kinds),
         federalByAgency=_federal_by_agency(conn, kinds["award"], funding),
@@ -229,12 +243,12 @@ def topic_detail(conn: sqlite3.Connection, topic_id: str) -> models.TopicDetail 
     people: list[models.TopicPerson] = []
     if ids:
         for r in conn.execute(f"""
-            SELECT r.name, r.college, r.department, COUNT(DISTINCT t.project_id) AS awards
+            SELECT r.id, r.name, r.college, r.department, COUNT(DISTINCT t.project_id) AS awards
             FROM project_team t JOIN researchers r ON r.id = t.researcher_id
             WHERE t.project_id IN ({_marks(ids)})
             GROUP BY r.id ORDER BY awards DESC, r.name LIMIT 12
         """, ids):
-            people.append(models.TopicPerson(name=r["name"], college=r["college"],
+            people.append(models.TopicPerson(researcherId=r["id"], name=r["name"], college=r["college"],
                                              department=r["department"] or "", awards=r["awards"]))
 
     # Related topics: the ones that share the most people with this one.

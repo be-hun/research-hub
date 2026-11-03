@@ -27,7 +27,8 @@ cd backend
 uv sync
 uv run python -m ingest.run            # fetch every source into data/hub.db (about 2 minutes)
 uv run python -m ingest.run --offline  # reload from the cached raw JSON, no API calls
-uv run uvicorn app.main:app --reload            # http://localhost:8000/health
+uv run python -m app.backup             # create a consistent SQLite backup
+uv run uvicorn app.main:app --reload            # http://localhost:8000/api/health
 uv run pytest
 ```
 
@@ -58,31 +59,20 @@ their replacements. Design system and images come from the Stitch project "Resea
 colors were checked with a palette validator (lightness, chroma, colorblind separation, contrast). Photos are
 AI-generated illustrations and say so in the footer.
 
-## Backend plan
+## Current architecture and next launch work
 
-### Stack (proposed in the project planning notes, not yet decided)
+The current prototype uses FastAPI and SQLite with FTS5, a Next.js 14 App Router frontend, five public
+data sources, and one backend AI wrapper. Search, filters, counts, and charts are ordinary database queries.
+The assistant retrieves records first and only returns database-backed cards and citations.
 
-| Layer | Choice | Why |
-| --- | --- | --- |
-| API + ingestion | Python, FastAPI | Pagination, normalization and dedup scripts live next to the API |
-| Database | PostgreSQL (Supabase) | Managed, has auth options |
-| Search v1 | Postgres full-text search | No separate search engine yet |
-| Search v2 | pgvector | Semantic matching of differently worded research descriptions, only if v1 is not enough |
-| AI | Approved model API behind one internal wrapper | Provider can be swapped without touching the app |
-| Hosting | DigitalOcean App Platform | Deploys from GitHub, no server to run |
+The next launch increments are:
 
-Check the Temple AI Build Challenge rules on approved AI providers and data handling before choosing the model API.
-
-### Build order
-
-1. **Schema and seed data.** Tables for projects, researchers, project-team links, colleges, publications, opportunities, plus a `source` and `verification` field on every record. Seed from `frontend/src/lib/mock.ts` so the existing pages work immediately.
-2. **Read endpoints.** `projects/featured`, `projects/:id`, `projects?ids=`, `researchers/:id`, `opportunities`. Match the shapes in `frontend/src/lib/types.ts`.
-3. **Search.** `GET /api/search` with Postgres full-text search and the college, funder and verification filters. Return `interpretedAs` and a per-result `match` (reason and evidence).
-4. **One public data source.** NIH RePORTER first. Filter to Temple, normalize investigator, college and dates, dedupe, and store as `public-award-record`. Do not label imported awards as active or verified.
-5. **Opportunities write path.** `POST /api/opportunities`. The server sets `id` and `verifiedByPI`.
-6. **Collaborator matches.** `GET /api/researchers/:id/matches` with a score, `reasons` and `citations`. Every reason must trace to a stored record.
-7. **Assistant.** `POST /api/assistant`, retrieval over stored records only. Cite sources and say so when nothing is found.
-8. **Auth, then student profiles.** Replaces the hard-coded `r-rivera` in `/matches` and the "My Profile" nav link, and the inline sample data on `/pathways`.
+1. Add researcher profiles and confidence-aware identity matching.
+2. Add college dashboards, comparisons, and collaborator discovery with database-computed scores.
+3. Add scheduled ingestion, external backups, freshness alerts, and a review path for mapping corrections.
+4. Add authentication only for saved searches and faculty-submitted corrections; public records remain read-only.
+5. Add shared rate limiting, model budget accounting, error tracking, structured logs, and deployment rollback.
+6. Upgrade Next.js on a planned dependency cycle rather than during Demo Day hardening.
 
 ### Data and AI rules (from the project plan)
 
@@ -96,9 +86,20 @@ Check the Temple AI Build Challenge rules on approved AI providers and data hand
 ## Known gaps
 
 - Search is keyword-based; AI interpretation of natural-language questions is not built yet.
-- The assistant needs `GEMINI_API_KEY` in `backend/.env` (copy `backend/.env.example`).
+- The assistant needs the selected provider key in an untracked `backend/.env` (copy `backend/.env.example`). Anthropic is the default; Gemini is opt-in.
 - About 30 awards have no college (mostly NSF social-science awards whose PIs have no other awards).
 - The "Cancer" and several smaller topics have no photo and use a plain tile.
+
+## Production and Demo Day checklist
+
+- Never commit `backend/.env`; copy `.env.example` and set credentials in the process environment or a root-owned secret file.
+- Rotate any credential that has ever appeared in Git history. Removing the file does not revoke the credential.
+- Put the site behind HTTPS and expose `/api/health` through the reverse proxy.
+- The assistant is limited to five requests per client per minute and eight conversation messages per request. Set `AI_TIMEOUT_SECONDS` for the provider timeout.
+- `ingest.run` creates a consistent backup in `backend/data/backups/` before every import. Keep backups outside the deploy volume in production and retain the prior database until the new run is verified. Use `--no-backup` only for a deliberate local operation.
+- Run `uv run pytest` and `npm run build` before deployment. CI runs both on pushes and pull requests.
+
+The production plan in this README is intentionally a runbook, not a proposal for a different stack. SQLite remains the Demo Day database; a real launch additionally needs managed backups, scheduled refreshes, non-root services, HTTPS, monitoring, and an identity-review workflow.
 
 ## Open questions
 

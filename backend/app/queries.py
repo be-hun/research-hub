@@ -17,11 +17,9 @@ PARENT_ONLY = "(p.source != 'nih-reporter' OR p.id = 'nih-' || p.award_number)"
 KIND_LABELS = {"award": "Grants", "trial": "Clinical trials", "publication": "Publications"}
 STATUS_LABELS = {"active": "Active", "ended": "Ended"}
 NOTICES = {
-    "award": "This is a public award record: funding history, not a confirmed study. "
-             "Contact the investigator to ask whether students are involved.",
-    "trial": "Trial status comes from ClinicalTrials.gov and may lag behind. Contact the study team listed there "
-             "before relying on it.",
-    "publication": "This is a published paper. Funders are as reported in the publication record.",
+    "award": "Funding record, not proof the study is active.",
+    "trial": "Status may lag; check with the study team.",
+    "publication": "Funders as reported by the paper.",
 }
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "in", "into", "is", "it", "of",
@@ -234,6 +232,7 @@ def related_ids(conn: sqlite3.Connection, row: sqlite3.Row, limit: int = 3) -> l
 
 def _distinctive_terms(conn: sqlite3.Connection, project_ids: list[str], limit: int = 6) -> list[str]:
     """Terms frequent in these projects but rare across Temple (drops generic ones like 'Data')."""
+    project_ids = set(project_ids)
     all_rows = conn.execute("SELECT id, terms FROM projects").fetchall()
     df = Counter()
     for r in all_rows:
@@ -245,41 +244,6 @@ def _distinctive_terms(conn: sqlite3.Connection, project_ids: list[str], limit: 
             mine.update({t.strip() for t in r["terms"].split(";") if t.strip()})
     ranked = [t for t, n in mine.most_common() if df[t] / total < 0.05 and (n > 1 or len(project_ids) == 1)]
     return ranked[:limit]
-
-
-def researcher(conn: sqlite3.Connection, researcher_id: str) -> models.ResearcherProfile | None:
-    row = conn.execute("SELECT * FROM researchers WHERE id = ?", (researcher_id,)).fetchone()
-    if not row:
-        return None
-    projects = conn.execute("""
-        SELECT p.id, p.title, p.kind, p.latest_fy, p.start_year, p.source_label, t.role
-        FROM project_team t JOIN projects p ON p.id = t.project_id
-        WHERE t.researcher_id = ? ORDER BY p.latest_fy DESC, p.start_year DESC
-    """, (researcher_id,)).fetchall()
-    ids = [p["id"] for p in projects]
-    kinds = Counter(p["kind"] for p in projects)
-    parts = [f"{n} {KIND_LABELS[k].lower() if n != 1 else KIND_LABELS[k].lower().rstrip('s')}" for k, n in kinds.items()]
-    first_year = min((p["start_year"] for p in projects), default=None)
-    summary = (
-        f"Listed on {', '.join(parts) or 'no records'} at Temple"
-        + (f" since {first_year}" if first_year else "")
-        + (f", most recently “{projects[0]['title']}”." if projects else ".")
-    )
-    sources = " and ".join(sorted({p["source_label"] for p in projects})) or "public"
-    return models.ResearcherProfile(
-        id=row["id"],
-        name=row["name"],
-        initials=_initials(row["name"]),
-        title="Investigator",
-        college=row["college"],
-        department=row["department"] or "",
-        verified=bool(row["verified"]),
-        summary=summary,
-        focus=_distinctive_terms(conn, ids),
-        about=f"This profile is built from public {sources} records and has not been confirmed by the researcher.",
-        projectIds=ids,
-        publications=[],
-    )
 
 
 # ---------- search ----------

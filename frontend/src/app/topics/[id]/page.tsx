@@ -72,12 +72,12 @@ export default async function TopicPage({ params }: { params: { id: string } }) 
               color: COLLEGES[c.college].color,
               value: c.funding,
               valueLabel: money(c.funding),
-              detail: `${c.awards} grants · ${c.trials} trials · ${c.publications} papers`,
+              detail: [count(c.awards, "grant"), count(c.trials, "trial"), count(c.publications, "paper")].join(" · "),
             }))}
           />
           {t.byCollege.some((c) => c.funding === 0) && (
             <p className="text-small text-ink-3 mt-3">
-              Through trials and papers only:{" "}
+              Trials and papers only:{" "}
               {t.byCollege
                 .filter((c) => c.funding === 0)
                 .map((c) => `${COLLEGES[c.college].short} (${c.trials + c.publications})`)
@@ -91,12 +91,12 @@ export default async function TopicPage({ params }: { params: { id: string } }) 
       </div>
 
       <div className="grid lg:grid-cols-[1fr_1.6fr] gap-12">
-        <Section title="Who works on this" subtitle="Investigators ranked by number of awards in this topic">
+        <Section title="Who works on this" subtitle="By grants in this topic">
           <ul className="bg-surface border border-line rounded-xl divide-y divide-line">
             {t.people.map((p) => (
-              <li key={p.name} className="px-4 py-3 flex items-center gap-3">
+              <li key={p.researcherId} className="px-4 py-3 flex items-center gap-3">
                 <div className="min-w-0 flex-1">
-                  <Link href={`/search?q=${encodeURIComponent(p.name)}`} className="font-medium hover:text-cherry">
+                  <Link href={`/researchers/${p.researcherId}`} className="font-medium hover:text-cherry">
                     {p.name}
                   </Link>
                   <div className="flex flex-wrap items-center gap-x-2 text-tiny text-ink-3">
@@ -109,7 +109,7 @@ export default async function TopicPage({ params }: { params: { id: string } }) 
             ))}
           </ul>
         </Section>
-        <Section title="Grants to start with" subtitle="Active grants first, then the largest" action={{ href: `/search?topic=${t.topic.id}&kind=award`, label: `All ${t.topic.awards}` }}>
+        <Section title="Grants" subtitle="Active first" action={{ href: `/search?topic=${t.topic.id}&kind=award`, label: `All ${t.topic.awards}` }}>
           <ul className="bg-surface border border-line rounded-xl px-5">
             {t.projects.map((p) => (
               <AwardRow key={p.id} project={p} />
@@ -120,7 +120,7 @@ export default async function TopicPage({ params }: { params: { id: string } }) 
 
       <div className="grid lg:grid-cols-2 gap-12">
         {t.trials.length > 0 && (
-          <Section title="Clinical trials" subtitle="Running trials first" action={{ href: `/search?topic=${t.topic.id}&kind=trial`, label: `All ${t.topic.trials}` }}>
+          <Section title="Clinical trials" subtitle="Active first" action={{ href: `/search?topic=${t.topic.id}&kind=trial`, label: `All ${t.topic.trials}` }}>
             <ul className="bg-surface border border-line rounded-xl px-5">
               {t.trials.map((p) => (
                 <AwardRow key={p.id} project={p} />
@@ -129,7 +129,7 @@ export default async function TopicPage({ params }: { params: { id: string } }) 
           </Section>
         )}
         {t.publications.length > 0 && (
-          <Section title="Recent papers" subtitle="With a Temple author and a reported funder" action={{ href: `/search?topic=${t.topic.id}&kind=publication`, label: `All ${t.topic.publications}` }}>
+          <Section title="Recent papers" action={{ href: `/search?topic=${t.topic.id}&kind=publication`, label: `All ${t.topic.publications}` }}>
             <ul className="bg-surface border border-line rounded-xl px-5">
               {t.publications.map((p) => (
                 <AwardRow key={p.id} project={p} />
@@ -140,7 +140,7 @@ export default async function TopicPage({ params }: { params: { id: string } }) 
       </div>
 
       {t.related.length > 0 && (
-        <Section title="Related topics" subtitle="Topics that share the most investigators with this one">
+        <Section title="Related topics" subtitle="Most shared researchers">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             {t.related.map((r) => (
               <TopicTile key={r.id} topic={r} />
@@ -148,11 +148,6 @@ export default async function TopicPage({ params }: { params: { id: string } }) 
           </div>
         </Section>
       )}
-
-      <p className="text-small text-ink-3">
-        Grants belong to this topic when they were funded by: {t.funders.join(" · ")}. Trials and papers are matched by
-        words in their title and subject terms, which is less exact.
-      </p>
     </main>
   );
 }

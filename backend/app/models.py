@@ -101,29 +101,72 @@ class ProjectDetail(Project):
     relatedProjectIds: list[str]
 
 
-class Publication(BaseModel):
-    title: str
-    authors: str
-    venue: str
-    year: int
-    doi: str
+IdentityConfidence = Literal["high", "medium", "low"]
+
+
+class ResearcherCounts(BaseModel):
+    grants: int
+    trials: int
+    publications: int
+
+
+class ResearcherProject(BaseModel):
+    role: str  # their role on the record, as the source lists it
+    project: Project
+
+
+class ResearcherCollaborator(BaseModel):
+    researcherId: str
+    name: str
+    college: CollegeId | None
+    department: str
+    identityConfidence: IdentityConfidence
+    sharedRecords: int
+    crossCollege: bool  # both have a college and the colleges differ
+    projectIds: list[str]  # the shared records: every collaborator link is backed by these
+
+
+class ResearcherAlias(BaseModel):
+    source: str  # source label, e.g. "NIH RePORTER"
+    name: str  # the name as that source spells it
+    sourcePersonId: str | None
+    evidence: Literal["source-person-id", "name-within-source", "same-name-across-sources"]
+    lastSeen: str | None
+
+
+class ResearcherSource(BaseModel):
+    label: str
+    url: str
+    records: int
+    lastSeen: str | None
+
+
+class ResearcherFocus(BaseModel):
+    id: str  # topic id
+    name: str
+    records: int
 
 
 class ResearcherProfile(BaseModel):
     id: str
     name: str
     initials: str
-    title: str
     college: CollegeId | None
     department: str
-    verified: bool
+    verified: bool  # confirmed by the researcher; always false until the correction workflow exists
+    identityConfidence: IdentityConfidence
+    identityNote: str
     orcid: str | None = None
-    summary: str
-    focus: list[str]
+    roles: list[str]  # the roles sources list them in ("Contact PI", "Author"...); never a job title
+    summary: str  # built from counts, not generated
+    focus: list[ResearcherFocus]  # plain-language topics of their records
+    terms: list[str]  # subject terms frequent in their records and rare elsewhere
+    counts: ResearcherCounts
+    projects: list[ResearcherProject]  # every record they are listed on, newest first
+    collaborators: list[ResearcherCollaborator]
+    aliases: list[ResearcherAlias]
+    sources: list[ResearcherSource]
     about: str
-    projectIds: list[str]
-    publications: list[Publication]
-    accepting: str | None = None
 
 
 class CollaboratorMatch(BaseModel):
@@ -144,7 +187,7 @@ class ChatMessage(BaseModel):
 
 
 class AssistantRequest(BaseModel):
-    messages: list[ChatMessage] = Field(min_length=1, max_length=20)
+    messages: list[ChatMessage] = Field(min_length=1, max_length=8)
 
     @model_validator(mode="after")
     def ends_with_user(self):
@@ -153,17 +196,41 @@ class AssistantRequest(BaseModel):
         return self
 
 
-class AssistantSource(BaseModel):
-    n: int  # the [n] number used in the reply text
+class AssistantRecord(BaseModel):
+    n: int  # the [n] number the summary cites
+    takeaway: str  # one line from the model: why this record answers the question
+    project: Project  # facts come from the database, not the model
+
+
+class PersonRecord(BaseModel):
+    n: int
     id: str
     title: str
-    label: str  # source name, e.g. "NIH RePORTER"
-    url: str
+    kind: Kind
+    role: str  # their role on it: "Contact PI", "Author", "Study official"...
+
+
+class PersonCounts(BaseModel):
+    grants: int
+    trials: int
+    publications: int
+
+
+class AssistantPerson(BaseModel):
+    name: str
+    department: str
+    college: CollegeId | None
+    focus: str  # a few words from the model
+    records: list[PersonRecord]  # retrieved records they appear on
+    totals: PersonCounts  # every Temple record they appear on
 
 
 class AssistantReply(BaseModel):
-    reply: str
-    sources: list[AssistantSource]
+    mode: Literal["people", "research", "none"]  # none: nothing found or not answerable
+    summary: str
+    records: list[AssistantRecord]
+    people: list[AssistantPerson]
+    followUps: list[str]
 
 
 class FacetValue(BaseModel):
@@ -271,6 +338,7 @@ class Overview(BaseModel):
 
 
 class TopicPerson(BaseModel):
+    researcherId: str
     name: str
     college: CollegeId | None
     department: str
@@ -287,3 +355,50 @@ class TopicDetail(BaseModel):
     trials: list[Project]
     publications: list[Project]
     related: list[TopicSummary]
+
+
+# ---------- colleges ----------
+
+class CollegeSummary(BaseModel):
+    id: CollegeId
+    name: str
+    awards: int
+    active: int
+    funding: int  # grant money obligated FY2022 onward, same rule as Overview.byCollege
+    trials: int
+    publications: int
+    researchers: int  # researchers whose profile is assigned to this college
+
+
+class CollegeTopic(BaseModel):
+    id: str
+    name: str
+    records: int  # grants + trials + publications in this college with this topic
+    awards: int
+
+
+class CollegeResearcher(BaseModel):
+    researcherId: str
+    name: str
+    department: str
+    identityConfidence: IdentityConfidence
+    records: int
+
+
+class CollegePartner(BaseModel):
+    college: CollegeId
+    records: int  # grants with investigators from both colleges
+
+
+class CollegeDashboard(BaseModel):
+    college: CollegeSummary
+    fundingYears: list[int]  # [first, last] fiscal year behind `funding` and `trend`; empty when there is none
+    updatedAt: str | None
+    trend: list[YearStat]
+    topics: list[CollegeTopic]
+    researchers: list[CollegeResearcher]
+    partners: list[CollegePartner]
+    crossCollege: list[Project]
+    recent: list[Project]
+    sources: list[SourceSummary]  # records per source in this college
+    unassignedRecords: int  # records Temple-wide with no college; they appear on no college page

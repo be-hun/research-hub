@@ -9,7 +9,7 @@ import StatTiles from "@/components/StatTiles";
 import TopicTile from "@/components/TopicTile";
 import { getOverview } from "@/lib/api";
 import { COLLEGES } from "@/lib/colleges";
-import { money, shortDate } from "@/lib/format";
+import { count, money, shortDate } from "@/lib/format";
 import { trendData } from "@/lib/series";
 
 export const metadata: Metadata = { title: "Explore" };
@@ -29,8 +29,7 @@ export default async function ExplorePage() {
       <header className="max-w-3xl">
         <h1 className="text-h1">Temple research at a glance</h1>
         <p className="text-lead text-ink-2 mt-2">
-          Grants, clinical trials and funded publications from {o.sources.length} public sources. Click any number to
-          see the records behind it.
+          Grants, clinical trials and papers from {o.sources.length} public sources.
         </p>
       </header>
 
@@ -49,12 +48,12 @@ export default async function ExplorePage() {
                 color: COLLEGES[c.college].color,
                 value: c.funding,
                 valueLabel: money(c.funding),
-                detail: `${c.awards} grants · ${c.trials} trials · ${c.publications} papers`,
+                detail: [count(c.awards, "grant"), count(c.trials, "trial"), count(c.publications, "paper")].join(" · "),
               }))}
           />
           {o.byCollege.some((c) => c.funding === 0) && (
             <p className="text-small text-ink-3 mt-3">
-              Also in the data, through trials and publications only:{" "}
+              Trials and papers only:{" "}
               {o.byCollege
                 .filter((c) => c.funding === 0)
                 .map((c) => (
@@ -78,7 +77,7 @@ export default async function ExplorePage() {
               color: COUNT_COLOR,
               value: a.funding,
               valueLabel: money(a.funding),
-              detail: `${a.awards} grants`,
+              detail: count(a.awards, "grant"),
             }))}
           />
         </Section>
@@ -88,7 +87,7 @@ export default async function ExplorePage() {
         <Section
           id="funding-types"
           title="Funding beyond the federal government"
-          subtitle="Trials and publications by who sponsored or funded them (a record can have several)"
+          subtitle="Trials and papers by funder type"
         >
           <BarList
             caption="Records by funding type"
@@ -102,10 +101,6 @@ export default async function ExplorePage() {
               detail: `${t.trials} trials · ${t.publications} papers`,
             }))}
           />
-          <p className="text-small text-ink-3 mt-3">
-            Funding types are inferred from funder and sponsor names.{" "}
-            <Link href="/about#limits" className="text-cherry underline underline-offset-2">How</Link>
-          </p>
         </Section>
 
         <Section title="Federal grant funding by year" subtitle="Money obligated each year, by funder">
@@ -124,7 +119,7 @@ export default async function ExplorePage() {
       <div className="grid lg:grid-cols-2 gap-12">
         <Section
           title="Clinical trials recruiting now"
-          subtitle="Status as reported to ClinicalTrials.gov"
+          subtitle="Per ClinicalTrials.gov"
           action={{ href: "/search?kind=trial&status=active", label: `All ${o.totals.recruiting} recruiting` }}
         >
           <ul className="bg-surface border border-line rounded-xl px-5">
@@ -133,7 +128,7 @@ export default async function ExplorePage() {
             ))}
           </ul>
         </Section>
-        <Section title="Recent publications" subtitle="Newest papers with a Temple author and a reported funder" action={{ href: "/search?kind=publication", label: "All publications" }}>
+        <Section title="Recent publications" action={{ href: "/search?kind=publication", label: "All publications" }}>
           <ul className="bg-surface border border-line rounded-xl px-5">
             {o.publications.map((p) => (
               <AwardRow key={p.id} project={p} />
@@ -143,14 +138,14 @@ export default async function ExplorePage() {
       </div>
 
       <div className="grid lg:grid-cols-2 gap-12">
-        <Section title="Recently started grants" subtitle="The newest active grants">
+        <Section title="Recently started grants">
           <ul className="bg-surface border border-line rounded-xl px-5">
             {o.recent.map((p) => (
               <AwardRow key={p.id} project={p} />
             ))}
           </ul>
         </Section>
-        <Section title="Teams that cross colleges" subtitle="Grants whose investigators come from more than one college">
+        <Section title="Teams that cross colleges" subtitle="Investigators from two or more colleges">
           <ul className="bg-surface border border-line rounded-xl px-5">
             {o.crossCollege.map((p) => (
               <AwardRow key={p.id} project={p} />

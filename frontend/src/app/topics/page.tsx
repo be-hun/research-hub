@@ -11,8 +11,7 @@ export default async function TopicsPage() {
       <header className="max-w-3xl mb-8">
         <h1 className="text-h1">Research topics</h1>
         <p className="text-lead text-ink-2 mt-2">
-          Each topic groups awards by the NIH institute or NSF division that funded them, so membership comes straight
-          from the record rather than from a guess.
+          Temple&apos;s grants, trials and papers, grouped by subject.
         </p>
       </header>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">

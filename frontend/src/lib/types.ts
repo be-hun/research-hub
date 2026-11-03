@@ -192,6 +192,7 @@ export interface Overview {
 }
 
 export interface TopicPerson {
+  researcherId: string;
   name: string;
   college: CollegeId | null;
   department: string;
@@ -210,10 +211,156 @@ export interface TopicDetail {
   related: TopicSummary[];
 }
 
-export interface AssistantSource {
+export interface AssistantRecord {
+  n: number; // the [n] the summary cites
+  takeaway: string;
+  project: Project;
+}
+
+export interface PersonRecord {
   n: number;
   id: string;
   title: string;
+  kind: Kind;
+  role: string;
+}
+
+export interface PersonCounts {
+  grants: number;
+  trials: number;
+  publications: number;
+}
+
+export interface AssistantPerson {
+  name: string;
+  department: string;
+  college: CollegeId | null;
+  focus: string;
+  records: PersonRecord[]; // retrieved records they appear on
+  totals: PersonCounts; // every Temple record they appear on
+}
+
+export interface AssistantReply {
+  mode: "people" | "research" | "none";
+  summary: string;
+  records: AssistantRecord[];
+  people: AssistantPerson[];
+  followUps: string[];
+}
+
+// ---------- researchers ----------
+
+/** high: one source person ID; medium: name match within one source; low: combined across sources by name. */
+export type IdentityConfidence = "high" | "medium" | "low";
+
+export interface ResearcherCounts {
+  grants: number;
+  trials: number;
+  publications: number;
+}
+
+export interface ResearcherProject {
+  role: string; // as the source lists it
+  project: Project;
+}
+
+export interface ResearcherCollaborator {
+  researcherId: string;
+  name: string;
+  college: CollegeId | null;
+  department: string;
+  identityConfidence: IdentityConfidence;
+  sharedRecords: number;
+  crossCollege: boolean;
+  projectIds: string[]; // the shared records behind this link
+}
+
+export interface ResearcherAlias {
+  source: string;
+  name: string;
+  sourcePersonId: string | null;
+  evidence: "source-person-id" | "name-within-source" | "same-name-across-sources";
+  lastSeen: string | null;
+}
+
+export interface ResearcherSource {
   label: string;
   url: string;
+  records: number;
+  lastSeen: string | null;
+}
+
+export interface ResearcherFocus {
+  id: string; // topic id
+  name: string;
+  records: number;
+}
+
+export interface ResearcherProfile {
+  id: string;
+  name: string;
+  initials: string;
+  college: CollegeId | null;
+  department: string;
+  verified: boolean;
+  identityConfidence: IdentityConfidence;
+  identityNote: string;
+  orcid?: string | null;
+  roles: string[]; // roles on records, never a job title
+  summary: string;
+  focus: ResearcherFocus[];
+  terms: string[];
+  counts: ResearcherCounts;
+  projects: ResearcherProject[];
+  collaborators: ResearcherCollaborator[];
+  aliases: ResearcherAlias[];
+  sources: ResearcherSource[];
+  about: string;
+}
+
+// ---------- colleges ----------
+
+export interface CollegeSummary {
+  id: CollegeId;
+  name: string;
+  awards: number;
+  active: number;
+  funding: number; // grant money obligated FY2022 onward
+  trials: number;
+  publications: number;
+  researchers: number;
+}
+
+export interface CollegeTopic {
+  id: string;
+  name: string;
+  records: number;
+  awards: number;
+}
+
+export interface CollegeResearcher {
+  researcherId: string;
+  name: string;
+  department: string;
+  identityConfidence: IdentityConfidence;
+  records: number;
+}
+
+export interface CollegePartner {
+  college: CollegeId;
+  records: number;
+}
+
+export interface CollegeDashboard {
+  college: CollegeSummary;
+  fundingYears: number[]; // [first, last]; empty when there is no funding
+  updatedAt: string | null;
+  trend: YearStat[];
+  topics: CollegeTopic[];
+  researchers: CollegeResearcher[];
+  partners: CollegePartner[];
+  crossCollege: Project[];
+  recent: Project[];
+  sources: SourceSummary[];
+  unassignedRecords: number;
 }

@@ -24,7 +24,8 @@ def fake_model(monkeypatch):
             calls.append(messages)
             if isinstance(result, Exception):
                 raise result
-            return result
+            return {"answerable": True, "mode": "research", "summary": "", "records": [], "people": [],
+                    "follow_ups": [], **result}
         monkeypatch.setattr(ai, "grounded_answer", grounded_answer)
         return calls
 
@@ -36,34 +37,64 @@ def ask(client, text):
 
 
 def test_nothing_found_skips_the_model(client, fake_model):
-    calls = fake_model({"answerable": True, "answer": "should not be used", "cited_records": [1]})
-    res = ask(client, "quantum cryptography blockchain")
-    assert res.status_code == 200
-    assert res.json()["sources"] == []
-    assert "couldn't find" in res.json()["reply"]
+    calls = fake_model({"summary": "should not be used", "records": [{"record": 1, "takeaway": "x"}]})
+    body = ask(client, "quantum cryptography blockchain").json()
+    assert body["mode"] == "none" and body["records"] == [] and "couldn't find" in body["summary"]
+    assert len(body["followUps"]) == 3
     assert calls == []
 
 
-def test_answer_keeps_only_real_citations(client, fake_model):
-    calls = fake_model({"answerable": True, "answer": "Proteostasis work in Down syndrome [1].", "cited_records": [1, 7]})
-    res = ask(client, "Who studies Down syndrome?")
-    body = res.json()
-    assert body["reply"] == "Proteostasis work in Down syndrome [1]."
-    assert [(s["n"], s["id"]) for s in body["sources"]] == [(1, "nih-R01AG000001")]
+def test_research_answer_keeps_only_real_records(client, fake_model):
+    calls = fake_model({
+        "summary": "Proteostasis work in Down syndrome [1] and more [7].",
+        "records": [{"record": 1, "takeaway": "Brain protein clearance in Down syndrome"}, {"record": 7, "takeaway": "x"}],
+        "follow_ups": ["Who leads this work?", "Any trials?", "Other aging grants?", "One too many"],
+    })
+    body = ask(client, "What Down syndrome research is there?").json()
+    assert body["mode"] == "research"
+    assert body["summary"] == "Proteostasis work in Down syndrome [1] and more."
+    assert [(r["n"], r["project"]["id"], r["project"]["kind"]) for r in body["records"]] == [(1, "nih-R01AG000001", "award")]
+    assert body["records"][0]["takeaway"] == "Brain protein clearance in Down syndrome"
+    assert body["followUps"] == ["Who leads this work?", "Any trials?", "Other aging grants?"]
     sent = calls[0][-1]["content"]
     assert '<record number="1" id="nih-R01AG000001" kind="award">' in sent and "Domenico Pratico (Contact PI)" in sent
 
 
-def test_answer_without_valid_citations_is_rejected(client, fake_model):
-    fake_model({"answerable": True, "answer": "Made-up claim.", "cited_records": [9]})
+def test_people_answer_reads_facts_from_the_database(client, fake_model):
+    fake_model({
+        "mode": "people",
+        "summary": "Domenico Pratico leads this work [1].",
+        "people": [{"name": "DOMENICO PRATICO", "focus": "Proteostasis in Down syndrome", "records": [1]},
+                   {"name": "Invented Person", "focus": "Not in any record", "records": [1]}],
+    })
+    body = ask(client, "Who studies Down syndrome?").json()
+    assert body["mode"] == "people" and body["records"] == []
+    [person] = body["people"]
+    assert person["name"] == "Domenico Pratico" and person["focus"] == "Proteostasis in Down syndrome"
+    assert person["records"] == [{"n": 1, "id": "nih-R01AG000001", "title": person["records"][0]["title"],
+                                  "kind": "award", "role": "Contact PI"}]
+    assert person["totals"] == {"grants": 1, "trials": 0, "publications": 0}
+
+
+def test_people_mode_without_valid_people_falls_back_to_records(client, fake_model):
+    fake_model({"mode": "people", "summary": "See [1].", "people": [{"name": "Nobody Real", "focus": "", "records": [1]}],
+                "records": [{"record": 1, "takeaway": "Down syndrome grant"}]})
+    body = ask(client, "Who studies Down syndrome?").json()
+    assert body["mode"] == "research" and [r["n"] for r in body["records"]] == [1]
+
+
+def test_answer_without_valid_items_is_rejected(client, fake_model):
+    fake_model({"summary": "Made-up claim [9].", "records": [{"record": 9, "takeaway": "x"}]})
     body = ask(client, "Down syndrome research").json()
-    assert body["sources"] == [] and "Made-up" not in body["reply"]
+    assert body["mode"] == "none" and body["records"] == [] and "Made-up" not in body["summary"]
 
 
-def test_unanswerable_passes_through_without_sources(client, fake_model):
-    fake_model({"answerable": False, "answer": "The records cover Down syndrome, not funding totals.", "cited_records": [1]})
+def test_unanswerable_passes_through_without_cards(client, fake_model):
+    fake_model({"answerable": False, "summary": "The records cover Down syndrome, not funding totals.",
+                "records": [{"record": 1, "takeaway": "x"}], "follow_ups": ["What does the grant study?"]})
     body = ask(client, "Down syndrome total funding").json()
-    assert body["sources"] == []
+    assert body["mode"] == "none" and body["records"] == []
+    assert body["summary"].startswith("The records cover") and body["followUps"] == ["What does the grant study?"]
 
 
 def test_model_unavailable_returns_503(client, fake_model):
