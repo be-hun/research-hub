@@ -1,14 +1,7 @@
 import Link from "next/link";
 import Icon from "./Icon";
+import NavLinks from "./NavLinks";
 
-const NAV = [
-  { href: "/explore", label: "Explore" },
-  { href: "/search", label: "Search" },
-  { href: "/topics", label: "Topics" },
-  { href: "/colleges", label: "Colleges" },
-  { href: "/ask", label: "Ask" },
-  { href: "/about", label: "About" },
-];
 
 function Logo() {
   return (
@@ -27,11 +20,7 @@ export default function Header() {
       <div className="max-w-page mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-6">
         <Logo />
         <nav aria-label="Main" className="hidden md:flex items-center gap-1 text-small font-medium">
-          {NAV.map((item) => (
-            <Link key={item.href} href={item.href} className="px-3 py-2 rounded-md text-ink-2 hover:text-ink hover:bg-canvas">
-              {item.label}
-            </Link>
-          ))}
+          <NavLinks />
         </nav>
         {/* Mobile menu without client JavaScript */}
         <details className="md:hidden relative">
@@ -39,11 +28,7 @@ export default function Header() {
             <Icon name="menu" size={24} />
           </summary>
           <nav aria-label="Main" className="absolute right-0 mt-2 w-48 bg-surface border border-line rounded-lg shadow-card py-2">
-            {NAV.map((item) => (
-              <Link key={item.href} href={item.href} className="block px-4 py-2.5 text-body text-ink hover:bg-canvas">
-                {item.label}
-              </Link>
-            ))}
+            <NavLinks mobile />
           </nav>
         </details>
       </div>

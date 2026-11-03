@@ -293,7 +293,15 @@ export interface ResearcherSource {
 export interface ResearcherFocus {
   id: string; // topic id
   name: string;
+  image: string | null;
   records: number;
+}
+
+export interface ResearcherYear {
+  year: number; // start year
+  grants: number;
+  trials: number;
+  publications: number;
 }
 
 export interface ResearcherProfile {
@@ -311,6 +319,7 @@ export interface ResearcherProfile {
   focus: ResearcherFocus[];
   terms: string[];
   counts: ResearcherCounts;
+  byYear: ResearcherYear[]; // oldest first
   projects: ResearcherProject[];
   collaborators: ResearcherCollaborator[];
   aliases: ResearcherAlias[];
@@ -334,6 +343,7 @@ export interface CollegeSummary {
 export interface CollegeTopic {
   id: string;
   name: string;
+  image: string | null;
   records: number;
   awards: number;
 }
@@ -363,4 +373,35 @@ export interface CollegeDashboard {
   recent: Project[];
   sources: SourceSummary[];
   unassignedRecords: number;
+}
+
+// ---------- people directory ----------
+
+export interface PersonSummary {
+  researcherId: string;
+  name: string;
+  initials: string;
+  college: CollegeId | null;
+  department: string;
+  identityConfidence: IdentityConfidence;
+  counts: ResearcherCounts;
+  topics: TopicRef[];
+}
+
+export interface PeopleResponse {
+  query: string;
+  total: number;
+  page: number;
+  pageSize: number;
+  sort: "records" | "name";
+  results: PersonSummary[];
+  colleges: FacetValue[];
+}
+
+export interface PeopleParams {
+  q?: string;
+  page?: number;
+  colleges?: string[];
+  kind?: string;
+  sort?: string;
 }

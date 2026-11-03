@@ -2,6 +2,8 @@ import type {
   CollegeDashboard,
   CollegeSummary,
   Overview,
+  PeopleParams,
+  PeopleResponse,
   Project,
   ProjectDetail,
   ResearcherProfile,
@@ -50,3 +52,14 @@ export const getProjects = (ids: string[]) =>
 export const getResearcher = (id: string) => getOrNull<ResearcherProfile>(`/api/researchers/${encodeURIComponent(id)}`);
 export const getColleges = () => get<CollegeSummary[]>("/api/colleges");
 export const getCollege = (id: string) => getOrNull<CollegeDashboard>(`/api/colleges/${encodeURIComponent(id)}`);
+
+export function peopleQueryString(p: PeopleParams): string {
+  const qs = new URLSearchParams();
+  if (p.q) qs.set("q", p.q);
+  if (p.page && p.page > 1) qs.set("page", String(p.page));
+  p.colleges?.forEach((c) => qs.append("college", c));
+  if (p.kind) qs.set("kind", p.kind);
+  if (p.sort && p.sort !== "records") qs.set("sort", p.sort);
+  return qs.toString();
+}
+export const getPeople = (p: PeopleParams) => get<PeopleResponse>(`/api/researchers?${peopleQueryString(p)}`);

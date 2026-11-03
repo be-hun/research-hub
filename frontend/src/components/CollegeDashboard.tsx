@@ -1,9 +1,11 @@
+import Image from "next/image";
 import Link from "next/link";
 import AwardRow from "@/components/AwardRow";
-import BarList from "@/components/charts/BarList";
 import YearBars from "@/components/charts/YearBars";
 import { ConfidenceChip } from "@/components/ConfidenceNotice";
+import Illustration from "@/components/Illustration";
 import Section from "@/components/Section";
+import SectionTabs from "@/components/SectionTabs";
 import { COLLEGES } from "@/lib/colleges";
 import { count } from "@/lib/format";
 import { trendData } from "@/lib/series";
@@ -20,6 +22,7 @@ export default function CollegeDashboard({ d }: { d: Dashboard }) {
   if (total === 0) {
     return (
       <div className="bg-surface border border-line rounded-xl px-6 py-10 text-center">
+        <Illustration variant="empty" className="w-48 mx-auto mb-2" />
         <h2 className="text-h2">No records mapped to this college yet</h2>
         <p className="text-body text-ink-2 mt-2 max-w-xl mx-auto">
           None of the public sources we import name this college on a grant, trial or publication. That does not mean
@@ -34,8 +37,19 @@ export default function CollegeDashboard({ d }: { d: Dashboard }) {
 
   return (
     <div className="space-y-12">
+      <SectionTabs
+        label="On this page"
+        items={[
+          { id: "funding", label: "Funding" },
+          { id: "topics", label: "Topics" },
+          { id: "researchers", label: "People" },
+          { id: "collaboration", label: "Collaboration" },
+          { id: "recent", label: "Recent" },
+          { id: "coverage", label: "Coverage" },
+        ]}
+      />
       <div className="grid lg:grid-cols-2 gap-12">
-        <Section title="Grant funding over time" subtitle={fy ? `Money obligated each fiscal year, ${fy}, by funder` : "Money obligated each fiscal year"}>
+        <Section id="funding" title="Grant funding over time" subtitle={fy ? `Money obligated each fiscal year, ${fy}, by funder` : "Money obligated each fiscal year"}>
           {d.trend.length ? (
             <YearBars caption={`${c.name}: grant funding by fiscal year`} data={trend.data} series={trend.series} />
           ) : (
@@ -44,20 +58,36 @@ export default function CollegeDashboard({ d }: { d: Dashboard }) {
           <p className="text-tiny text-ink-3 mt-3">Funding totals show how much was awarded, not the quality or impact of the research.</p>
         </Section>
 
-        <Section title="Top research topics" subtitle="Records in this college with each topic">
+        <Section id="topics" title="Top research topics" subtitle="Records in this college with each topic">
           {d.topics.length ? (
-            <BarList
-              caption={`${c.name}: records by topic`}
-              rows={d.topics.map((t) => ({
-                key: t.id,
-                label: t.name,
-                href: `/search?college=${c.id}&topic=${t.id}`,
-                color: TOPIC_COLOR,
-                value: t.records,
-                valueLabel: count(t.records, "record"),
-                detail: count(t.awards, "grant"),
-              }))}
-            />
+            <ul className="space-y-1">
+              {d.topics.map((tp) => {
+                const max = Math.max(...d.topics.map((x) => x.records), 1);
+                return (
+                  <li key={tp.id}>
+                    <Link href={`/search?college=${c.id}&topic=${tp.id}`} className="flex items-center gap-3 -mx-2 px-2 py-2 rounded-md hover:bg-surface group">
+                      {tp.image ? (
+                        <span className="relative w-10 h-10 rounded-md overflow-hidden shrink-0">
+                          <Image src={tp.image} alt="" fill sizes="40px" className="object-cover" />
+                        </span>
+                      ) : (
+                        <span className="w-10 h-10 rounded-md bg-canvas border border-line shrink-0" aria-hidden="true" />
+                      )}
+                      <span className="flex-1 min-w-0">
+                        <span className="flex items-baseline justify-between gap-3">
+                          <span className="text-small font-medium truncate group-hover:text-cherry">{tp.name}</span>
+                          <span className="text-small font-semibold num shrink-0">{count(tp.records, "record")}</span>
+                        </span>
+                        <span className="block h-2 rounded-r bg-canvas mt-1.5" aria-hidden="true">
+                          <span className="block h-full rounded-r" style={{ width: `${Math.max((tp.records / max) * 100, 2)}%`, background: TOPIC_COLOR }} />
+                        </span>
+                        <span className="block text-tiny text-ink-3 num mt-0.5">{count(tp.awards, "grant")}</span>
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
           ) : (
             <p className="text-small text-ink-3">No topics assigned to these records.</p>
           )}
@@ -65,7 +95,7 @@ export default function CollegeDashboard({ d }: { d: Dashboard }) {
       </div>
 
       <div className="grid lg:grid-cols-[1fr_1.6fr] gap-12">
-        <Section id="researchers" title="Researchers" subtitle="Most public records first; not a measure of impact">
+        <Section id="researchers" title="Researchers" subtitle="Most public records first; not a measure of impact" action={{ href: `/researchers?college=${c.id}`, label: `All ${c.researchers.toLocaleString()}` }}>
           {d.researchers.length ? (
             <ul className="bg-surface border border-line rounded-xl divide-y divide-line">
               {d.researchers.map((r) => (
@@ -88,7 +118,7 @@ export default function CollegeDashboard({ d }: { d: Dashboard }) {
           )}
         </Section>
 
-        <Section title="Research with other colleges" subtitle="Grants with investigators from this college and another">
+        <Section id="collaboration" title="Research with other colleges" subtitle="Grants with investigators from this college and another">
           {d.partners.length > 0 && (
             <p className="text-small text-ink-2 mb-4">
               {d.partners.map((p, i) => (
@@ -114,7 +144,7 @@ export default function CollegeDashboard({ d }: { d: Dashboard }) {
         </Section>
       </div>
 
-      <Section title="Recent records" subtitle="Newest start date first" action={{ href: `/search?college=${c.id}`, label: `All ${total.toLocaleString()}` }}>
+      <Section id="recent" title="Recent records" subtitle="Newest start date first" action={{ href: `/search?college=${c.id}`, label: `All ${total.toLocaleString()}` }}>
         <ul className="bg-surface border border-line rounded-xl px-4 sm:px-5">
           {d.recent.map((p) => (
             <AwardRow key={p.id} project={p} />
@@ -122,7 +152,7 @@ export default function CollegeDashboard({ d }: { d: Dashboard }) {
         </ul>
       </Section>
 
-      <Section title="Coverage and limitations">
+      <Section id="coverage" title="Coverage and limitations">
         <div className="grid md:grid-cols-2 gap-8 text-small text-ink-2">
           <div>
             <table className="w-full">

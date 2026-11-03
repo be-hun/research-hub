@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import Section from "@/components/Section";
+import { PHOTOS } from "@/lib/photos";
 import SourceCards from "@/components/SourceCards";
 import { getOverview } from "@/lib/api";
 import { shortDate } from "@/lib/format";
@@ -132,6 +133,24 @@ export default async function AboutPage() {
         <p className="text-small text-ink-3 mt-4 max-w-3xl">
           Every answer, result and chart links to its original record. The AI model runs only on the server.
         </p>
+      </Section>
+
+      <Section id="photo-credits" title="Photo credits" subtitle="Campus photos are openly licensed from Wikimedia Commons">
+        <ul className="text-small text-ink-2 space-y-1.5 max-w-3xl">
+          {Object.values(PHOTOS).map((p) => (
+            <li key={p.src}>
+              <span className="text-ink">{p.caption}</span>: photo by{" "}
+              <a href={p.sourceUrl} target="_blank" rel="noreferrer" className="text-cherry underline underline-offset-2">
+                {p.author}
+              </a>
+              ,{" "}
+              <a href={p.licenseUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                {p.license}
+              </a>
+              . Resized for the web.
+            </li>
+          ))}
+        </ul>
       </Section>
 
       <Section title="Questions or corrections">

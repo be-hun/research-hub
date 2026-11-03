@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 from collections import defaultdict, deque
 from time import monotonic
@@ -23,12 +24,23 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    conn = connect(db_path or config.DB_PATH)
+    path = db_path or config.DB_PATH
+    conn = connect(path)
     init_schema(conn)
     app.state.db = conn
+    # Sync endpoints run on a thread pool, and a sqlite3 connection must not be used by two threads at once
+    # (concurrent requests fail with "bad parameter or other API misuse"). Each worker thread gets its own
+    # connection to the file; WAL mode lets them read concurrently. An in-memory database exists only on the
+    # shared connection, so tests keep using that one.
+    local = threading.local()
 
     def db(request: Request):
-        return request.app.state.db
+        if str(path) == ":memory:":
+            return request.app.state.db
+        thread_conn = getattr(local, "conn", None)
+        if thread_conn is None:
+            thread_conn = local.conn = connect(path)
+        return thread_conn
 
     @app.get("/health")
     def health() -> dict:
@@ -83,6 +95,17 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
     @app.get("/api/projects")
     def projects(request: Request, ids: str = "") -> list[models.Project]:
         return queries.projects_by_ids(db(request), [i for i in ids.split(",") if i])
+
+    @app.get("/api/researchers")
+    def people(
+        request: Request,
+        q: str = Query("", max_length=200),
+        page: int = Query(1, ge=1),
+        college: list[str] = Query(default=[]),
+        kind: str | None = None,
+        sort: str = "records",
+    ) -> models.PeopleResponse:
+        return researchers.directory(db(request), q, [c for c in college if c in COLLEGE_NAMES], kind, sort, page)
 
     @app.get("/api/researchers/{researcher_id}")
     def researcher(request: Request, researcher_id: str) -> models.ResearcherProfile:

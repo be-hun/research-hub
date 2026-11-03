@@ -19,6 +19,7 @@ def test_researcher_profile_counts(client):
     assert p["counts"] == {"grants": direct.get("award", 0), "trials": direct.get("trial", 0),
                            "publications": direct.get("publication", 0)}
     assert len(p["projects"]) == sum(direct.values())
+    assert sum(y["grants"] + y["trials"] + y["publications"] for y in p["byYear"]) == sum(direct.values())
     assert p["summary"].startswith("Listed on 2 grants and 1 clinical trial")
 
 
@@ -125,3 +126,20 @@ def test_indexes_exist(client):
     names = {r[0] for r in _db(client).execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
     assert {"idx_project_team_researcher", "idx_project_team_project", "idx_project_colleges_college",
             "idx_project_topics_topic", "idx_projects_kind_active", "idx_projects_updated"} <= names
+
+
+def test_people_directory(client):
+    r = client.get("/api/researchers").json()
+    direct = _db(client).execute(
+        "SELECT COUNT(*) FROM researchers r WHERE EXISTS (SELECT 1 FROM project_team t WHERE t.researcher_id = r.id)"
+    ).fetchone()[0]
+    assert r["total"] == direct == 4
+    top = r["results"][0]
+    assert top["researcherId"] == "r-nih-10" and top["counts"] == {"grants": 2, "trials": 1, "publications": 0}
+    assert client.get("/api/researchers?q=souvenir").json()["total"] == 1
+    assert client.get("/api/researchers?q=%25").json()["total"] == 4  # LIKE wildcard is a parameter, not SQL
+    eng = client.get("/api/researchers?college=engineering").json()
+    assert eng["total"] == 2 and {c["value"] for c in eng["colleges"]} >= {"engineering", "medicine"}
+    assert client.get("/api/researchers?kind=publication").json()["total"] == 1
+    names = [p["name"] for p in client.get("/api/researchers?sort=name").json()["results"]]
+    assert names == sorted(names, key=str.lower)

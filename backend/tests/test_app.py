@@ -28,7 +28,7 @@ def test_models_match_frontend_types():
                  "YearStat", "TopicSummary", "Overview", "TopicPerson", "TopicDetail", "AssistantRecord", "PersonRecord", "PersonCounts", "AssistantPerson",
                  "AssistantReply", "ResearcherCounts", "ResearcherProject", "ResearcherCollaborator", "ResearcherAlias",
                  "ResearcherSource", "ResearcherFocus", "ResearcherProfile", "CollegeSummary", "CollegeTopic",
-                 "CollegeResearcher", "CollegePartner", "CollegeDashboard"]:
+                 "CollegeResearcher", "CollegePartner", "CollegeDashboard", "PersonSummary", "PeopleResponse", "ResearcherYear"]:
         assert own_fields(getattr(models, name)) == ts_fields(name), name
 
 

@@ -1,3 +1,4 @@
+import Icon from "@/components/Icon";
 import type { IdentityConfidence } from "@/lib/types";
 
 const LABELS: Record<IdentityConfidence, string> = {
@@ -6,18 +7,18 @@ const LABELS: Record<IdentityConfidence, string> = {
   low: "Name match across sources",
 };
 
-/** Small label for lists. Text, not just color, carries the meaning. */
+/** Small label for lists: quiet gray text with an icon, so it informs without alarming (design rule: never a
+ *  yellow warning banner). Text, not color, carries the meaning. */
 export function ConfidenceChip({ confidence }: { confidence: IdentityConfidence }) {
-  const cls =
-    confidence === "high" ? "bg-canvas border border-line text-ink-2" : "bg-notice-bg text-notice-ink";
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-tiny font-semibold ${cls}`}>
+    <span className="inline-flex items-center gap-1 text-tiny text-ink-3">
+      <Icon name="info" size={14} />
       {LABELS[confidence]}
     </span>
   );
 }
 
-/** How sure we are that every record on a profile is the same person, and that nobody confirmed it. */
+/** The one provenance note on a profile: how sure we are the records are one person, and that nobody confirmed it. */
 export default function ConfidenceNotice({
   confidence,
   note,
@@ -27,17 +28,18 @@ export default function ConfidenceNotice({
   note: string;
   verified: boolean;
 }) {
-  const caution = confidence !== "high";
   return (
-    <aside
-      aria-label="Identity confidence"
-      className={`rounded-xl px-4 py-3 text-small ${caution ? "bg-notice-bg text-notice-ink" : "bg-surface border border-line text-ink-2"}`}
-    >
-      <p className="font-semibold">
-        {LABELS[confidence]}
-        <span className="font-normal"> · {verified ? "Confirmed by the researcher" : "Not confirmed by the researcher"}</span>
-      </p>
-      <p className="mt-1">{note}</p>
-    </aside>
+    <details className="group text-small text-ink-2 max-w-3xl">
+      <summary className="list-none cursor-pointer inline-flex items-start gap-1.5 hover:text-ink">
+        <Icon name="info" size={18} className="text-ink-3 mt-0.5" />
+        <span>
+          <span className="font-semibold">{LABELS[confidence]}</span>
+          {" · "}
+          {verified ? "Confirmed by the researcher" : "Not confirmed by the researcher"}
+          <span className="text-cherry ml-1.5 underline underline-offset-2 group-open:hidden">What does this mean?</span>
+        </span>
+      </summary>
+      <p className="mt-2 pl-6 text-ink-3">{note}</p>
+    </details>
   );
 }

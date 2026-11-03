@@ -144,7 +144,15 @@ class ResearcherSource(BaseModel):
 class ResearcherFocus(BaseModel):
     id: str  # topic id
     name: str
+    image: str | None
     records: int
+
+
+class ResearcherYear(BaseModel):
+    year: int  # start year
+    grants: int
+    trials: int
+    publications: int
 
 
 class ResearcherProfile(BaseModel):
@@ -162,6 +170,7 @@ class ResearcherProfile(BaseModel):
     focus: list[ResearcherFocus]  # plain-language topics of their records
     terms: list[str]  # subject terms frequent in their records and rare elsewhere
     counts: ResearcherCounts
+    byYear: list[ResearcherYear]  # records by start year, oldest first
     projects: list[ResearcherProject]  # every record they are listed on, newest first
     collaborators: list[ResearcherCollaborator]
     aliases: list[ResearcherAlias]
@@ -373,6 +382,7 @@ class CollegeSummary(BaseModel):
 class CollegeTopic(BaseModel):
     id: str
     name: str
+    image: str | None
     records: int  # grants + trials + publications in this college with this topic
     awards: int
 
@@ -402,3 +412,26 @@ class CollegeDashboard(BaseModel):
     recent: list[Project]
     sources: list[SourceSummary]  # records per source in this college
     unassignedRecords: int  # records Temple-wide with no college; they appear on no college page
+
+
+# ---------- people directory ----------
+
+class PersonSummary(BaseModel):
+    researcherId: str
+    name: str
+    initials: str
+    college: CollegeId | None
+    department: str
+    identityConfidence: IdentityConfidence
+    counts: ResearcherCounts
+    topics: list[TopicRef]  # their two most frequent topics
+
+
+class PeopleResponse(BaseModel):
+    query: str
+    total: int
+    page: int
+    pageSize: int
+    sort: Literal["records", "name"]
+    results: list[PersonSummary]
+    colleges: list[FacetValue]  # people per college for the current query, ignoring the college filter

@@ -67,7 +67,8 @@ def dashboard(conn: sqlite3.Connection, college: str) -> models.CollegeDashboard
     """, (college, TREND_START)).fetchall())
 
     topics = [
-        models.CollegeTopic(id=r["topic_id"], name=TOPICS_BY_ID[r["topic_id"]].name, records=r["records"],
+        models.CollegeTopic(id=r["topic_id"], name=TOPICS_BY_ID[r["topic_id"]].name,
+                            image=TOPICS_BY_ID[r["topic_id"]].image, records=r["records"],
                             awards=r["awards"])
         for r in conn.execute(f"""
             SELECT pt.topic_id, COUNT(*) AS records, SUM(p.kind = 'award') AS awards

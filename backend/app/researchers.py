@@ -8,6 +8,7 @@ grant count can be higher than the number of grants it adds to a college or topi
 import sqlite3
 
 from app import models
+from app.colleges import COLLEGE_NAMES
 from app.explore import SOURCE_INFO
 from app.queries import KIND_LABELS, _distinctive_terms, _initials, _projects
 from app.topics import BY_ID as TOPICS_BY_ID
@@ -95,8 +96,21 @@ def profile(conn: sqlite3.Connection, researcher_id: str) -> models.ResearcherPr
     counts = models.ResearcherCounts(grants=kinds.get("award", 0), trials=kinds.get("trial", 0),
                                      publications=kinds.get("publication", 0))
 
+    by_year = [
+        models.ResearcherYear(year=y["start_year"], grants=y["grants"], trials=y["trials"], publications=y["pubs"])
+        for y in conn.execute("""
+            SELECT p.start_year,
+                   COUNT(DISTINCT CASE WHEN p.kind = 'award' THEN p.id END) AS grants,
+                   COUNT(DISTINCT CASE WHEN p.kind = 'trial' THEN p.id END) AS trials,
+                   COUNT(DISTINCT CASE WHEN p.kind = 'publication' THEN p.id END) AS pubs
+            FROM project_team t JOIN projects p ON p.id = t.project_id
+            WHERE t.researcher_id = ? GROUP BY p.start_year ORDER BY p.start_year
+        """, (researcher_id,))
+    ]
+
     focus = [
-        models.ResearcherFocus(id=r["topic_id"], name=TOPICS_BY_ID[r["topic_id"]].name, records=r["n"])
+        models.ResearcherFocus(id=r["topic_id"], name=TOPICS_BY_ID[r["topic_id"]].name,
+                               image=TOPICS_BY_ID[r["topic_id"]].image, records=r["n"])
         for r in conn.execute("""
             SELECT pt.topic_id, COUNT(DISTINCT pt.project_id) AS n
             FROM project_topics pt JOIN project_team t ON t.project_id = pt.project_id
@@ -149,10 +163,75 @@ def profile(conn: sqlite3.Connection, researcher_id: str) -> models.ResearcherPr
         focus=focus,
         terms=_distinctive_terms(conn, [r.project.id for r in records]),
         counts=counts,
+        byYear=by_year,
         projects=records,
         collaborators=collaborators(conn, researcher_id),
         aliases=aliases,
         sources=sources,
         about=("Built from public records. This profile has not been confirmed by the researcher." if not row["verified"]
                else "Confirmed by the researcher."),
+    )
+
+
+PEOPLE_PAGE_SIZE = 24
+
+
+def directory(conn: sqlite3.Connection, q: str = "", colleges: list[str] | None = None, kind: str | None = None,
+              sort: str = "records", page: int = 1) -> models.PeopleResponse:
+    """People with at least one record. Name/department search is a parameterized LIKE; counts are SQL."""
+    where, params = ["EXISTS (SELECT 1 FROM project_team t WHERE t.researcher_id = r.id)"], []
+    q = q.strip()
+    if q:
+        where.append("(r.name LIKE ? OR COALESCE(r.department, '') LIKE ?)")
+        params += [f"%{q}%", f"%{q}%"]
+    if kind in KIND_LABELS:
+        where.append("EXISTS (SELECT 1 FROM project_team t JOIN projects p ON p.id = t.project_id "
+                     "WHERE t.researcher_id = r.id AND p.kind = ?)")
+        params.append(kind)
+    base_where, base_params = " AND ".join(where), list(params)
+    if colleges:
+        where.append(f"r.college IN ({','.join('?' * len(colleges))})")
+        params += colleges
+    sql_where = " AND ".join(where)
+
+    total = conn.execute(f"SELECT COUNT(*) FROM researchers r WHERE {sql_where}", params).fetchone()[0]
+    order = "r.name COLLATE NOCASE" if sort == "name" else "records DESC, r.name COLLATE NOCASE"
+    page = max(page, 1)
+    rows = conn.execute(f"""
+        SELECT r.id, r.name, r.college, r.department, r.identity_confidence,
+               COUNT(DISTINCT t.project_id) AS records,
+               COUNT(DISTINCT CASE WHEN p.kind = 'award' THEN p.id END) AS grants,
+               COUNT(DISTINCT CASE WHEN p.kind = 'trial' THEN p.id END) AS trials,
+               COUNT(DISTINCT CASE WHEN p.kind = 'publication' THEN p.id END) AS publications
+        FROM researchers r JOIN project_team t ON t.researcher_id = r.id JOIN projects p ON p.id = t.project_id
+        WHERE {sql_where} GROUP BY r.id ORDER BY {order} LIMIT ? OFFSET ?
+    """, params + [PEOPLE_PAGE_SIZE, (page - 1) * PEOPLE_PAGE_SIZE]).fetchall()
+
+    ids = [r["id"] for r in rows]
+    topics: dict[str, list[models.TopicRef]] = {i: [] for i in ids}
+    if ids:
+        for t in conn.execute(f"""
+            SELECT t.researcher_id, pt.topic_id, COUNT(DISTINCT pt.project_id) AS n
+            FROM project_team t JOIN project_topics pt ON pt.project_id = t.project_id
+            WHERE t.researcher_id IN ({','.join('?' * len(ids))})
+            GROUP BY t.researcher_id, pt.topic_id ORDER BY n DESC, pt.topic_id
+        """, ids):
+            if t["topic_id"] in TOPICS_BY_ID and len(topics[t["researcher_id"]]) < 2:
+                topics[t["researcher_id"]].append(models.TopicRef(id=t["topic_id"], name=TOPICS_BY_ID[t["topic_id"]].name))
+
+    facets = conn.execute(f"""SELECT r.college, COUNT(*) AS n FROM researchers r
+                              WHERE {base_where} AND r.college IS NOT NULL GROUP BY r.college ORDER BY n DESC""",
+                          base_params).fetchall()
+    return models.PeopleResponse(
+        query=q, total=total, page=page, pageSize=PEOPLE_PAGE_SIZE, sort="name" if sort == "name" else "records",
+        results=[
+            models.PersonSummary(
+                researcherId=r["id"], name=r["name"], initials=_initials(r["name"]), college=r["college"],
+                department=r["department"] or "", identityConfidence=r["identity_confidence"],
+                counts=models.ResearcherCounts(grants=r["grants"], trials=r["trials"], publications=r["publications"]),
+                topics=topics[r["id"]],
+            )
+            for r in rows
+        ],
+        colleges=[models.FacetValue(value=f["college"], label=COLLEGE_NAMES[f["college"]], count=f["n"]) for f in facets],
     )
