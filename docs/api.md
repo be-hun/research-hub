@@ -1,7 +1,9 @@
 # API contract
 
 The frontend (`frontend/src/lib/api.ts`) calls these endpoints at `NEXT_PUBLIC_API_URL` (default
-`http://localhost:8000`). Response models live in `backend/app/models.py` and are mirrored in
+`http://localhost:8000`). Behind a reverse proxy that serves `/api/` on the same origin (the droplet's nginx), build with
+`NEXT_PUBLIC_API_URL=` (empty) so the browser calls `/api/...` on the site itself; server-side rendering then uses `API_URL`
+(default `http://localhost:8000`). Response models live in `backend/app/models.py` and are mirrored in
 `frontend/src/lib/types.ts`; a backend test fails if the two drift apart.
 
 Every record has a `kind`: `award` (grant), `trial` (clinical trial) or `publication`, a `statusLabel` in the

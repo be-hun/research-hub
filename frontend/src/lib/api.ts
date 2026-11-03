@@ -14,7 +14,12 @@ import type {
 } from "./types";
 
 // The backend API (see backend/ and docs/api.md).
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Server components call the API directly (API_URL, read at runtime). The browser uses NEXT_PUBLIC_API_URL, which is
+// fixed at build time: leave it unset locally (http://localhost:8000), and build with it set to "" behind a reverse
+// proxy so the browser calls /api/... on the site's own origin.
+const SERVER_API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"; // "" falls through
+const BROWSER_API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const API_URL = typeof window === "undefined" ? SERVER_API_URL : BROWSER_API_URL;
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, { cache: "no-store" });
