@@ -39,10 +39,8 @@ def test_health():
     assert client.get("/api/health").json() == {"ok": True}
 
 
-def test_assistant_rate_limit():
+def test_assistant_has_no_rate_limit():
     client = TestClient(create_app(":memory:"))
     body = {"messages": [{"role": "user", "text": "test"}]}
-    for _ in range(5):
-        response = client.post("/api/assistant", json=body)
-        assert response.status_code in (200, 503)
-    assert client.post("/api/assistant", json=body).status_code == 429
+    for _ in range(10):
+        assert client.post("/api/assistant", json=body).status_code in (200, 503)

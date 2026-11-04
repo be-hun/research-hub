@@ -17,7 +17,7 @@ Start the backend first (below), then:
 ```bash
 cd frontend
 npm install
-npm run dev   # http://localhost:3000, talks to http://localhost:8000 (override with NEXT_PUBLIC_API_URL)
+npm run dev   # http://localhost:3000, forwards /api/* to http://localhost:8000 (override with API_URL)
 ```
 
 ## Run the backend

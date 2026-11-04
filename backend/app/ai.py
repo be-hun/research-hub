@@ -10,7 +10,7 @@ import os
 from app import config  # noqa: F401  (loads backend/.env before the settings below are read)
 
 PROVIDER = os.environ.get("AI_PROVIDER", "anthropic").lower()
-DEFAULT_MODELS = {"gemini": "gemini-3.5-flash-lite", "anthropic": "claude-opus-5-5"}
+DEFAULT_MODELS = {"gemini": "gemini-3.5-flash-lite", "anthropic": "claude-sonnet-5-5"}
 MODEL = os.environ.get("AI_MODEL") or DEFAULT_MODELS.get(PROVIDER, "")
 EFFORT = os.environ.get("AI_EFFORT", "medium")  # Anthropic only: low | medium | high | xhigh | max
 TIMEOUT_SECONDS = float(os.environ.get("AI_TIMEOUT_SECONDS", "30"))

@@ -1,7 +1,5 @@
 import threading
 from pathlib import Path
-from collections import defaultdict, deque
-from time import monotonic
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,9 +11,6 @@ from app.db import connect, init_schema
 
 def create_app(db_path: Path | str | None = None) -> FastAPI:
     app = FastAPI(title="Research Hub API")
-    assistant_requests: dict[str, deque[float]] = defaultdict(deque)
-    assistant_window = 60.0
-    assistant_limit = 5
     app.add_middleware(
         CORSMiddleware,
         allow_origins=config.CORS_ORIGINS,
@@ -162,14 +157,6 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
 
     @app.post("/api/assistant")
     def assistant_reply(request: Request, body: models.AssistantRequest) -> models.AssistantReply:
-        client = request.client.host if request.client else "unknown"
-        now = monotonic()
-        recent = assistant_requests[client]
-        while recent and now - recent[0] >= assistant_window:
-            recent.popleft()
-        if len(recent) >= assistant_limit:
-            raise HTTPException(429, "The assistant is being used heavily. Try again in a minute.")
-        recent.append(now)
         try:
             return assistant.answer(db(request), body.messages)
         except ai.AIUnavailable as exc:

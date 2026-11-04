@@ -1,9 +1,9 @@
 # API contract
 
-The frontend (`frontend/src/lib/api.ts`) calls these endpoints at `NEXT_PUBLIC_API_URL` (default
-`http://localhost:8000`). Behind a reverse proxy that serves `/api/` on the same origin (the droplet's nginx), build with
-`NEXT_PUBLIC_API_URL=` (empty) so the browser calls `/api/...` on the site itself; server-side rendering then uses `API_URL`
-(default `http://localhost:8000`). Response models live in `backend/app/models.py` and are mirrored in
+The browser calls these endpoints at `/api/...` on the site's own origin; a rewrite in `frontend/next.config.mjs`
+forwards them to the backend (`API_URL`, default `http://localhost:8000`), so CORS doesn't apply. Set
+`NEXT_PUBLIC_API_URL` at build time only to call a different API host directly. In production the droplet's nginx
+serves `/api/` itself, so the rewrite isn't reached; server-side rendering always uses `API_URL`. Response models live in `backend/app/models.py` and are mirrored in
 `frontend/src/lib/types.ts`; a backend test fails if the two drift apart.
 
 Every record has a `kind`: `award` (grant), `trial` (clinical trial) or `publication`, a `statusLabel` in the
@@ -117,11 +117,10 @@ Returns `{ reply: string, sources: { n: number, id: string, title: string, label
 - The backend searches stored records first. If nothing matches, it replies "nothing found" without calling the model.
 - The model sees only the retrieved records and cites them inline as `[n]`. `sources` lists each cited record; citations that don't point at a retrieved record are dropped, and an answer with no valid citation is replaced with a "couldn't answer" reply.
 - `503` with `{ detail }` when the AI service is unavailable or the API key is missing or rejected. The detail is safe to show users.
-- `429` when the per-client limit is exceeded (five requests per minute).
 - Model calls live only in `backend/app/ai.py`. `AI_PROVIDER=anthropic` is the documented default; Gemini remains supported when explicitly configured. Set `AI_TIMEOUT_SECONDS` to control the provider timeout.
 
-The assistant limiter is intentionally in-process for the small Demo Day deployment. A multi-instance or
-public launch must move rate limiting and budget accounting to shared infrastructure.
+The assistant has no rate limit. A public launch should add rate limiting and budget accounting
+(ideally at the reverse proxy or other shared infrastructure) so the API key can't be run up.
 
 ## Data rules
 
