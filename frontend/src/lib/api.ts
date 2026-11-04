@@ -16,11 +16,12 @@ import type {
 } from "./types";
 
 // The backend API (see backend/ and docs/api.md).
-// Server components call the API directly (API_URL, read at runtime). The browser uses NEXT_PUBLIC_API_URL, which is
-// fixed at build time: leave it unset locally (http://localhost:8000), and build with it set to "" behind a reverse
-// proxy so the browser calls /api/... on the site's own origin.
+// Server components call the API directly (API_URL, read at runtime). The browser calls /api/... on the site's own
+// origin by default: the rewrite in next.config.mjs (or nginx in production) forwards it to the backend, so it works
+// from any address (localhost, 127.0.0.1, a LAN IP or a shared URL) without CORS. Set NEXT_PUBLIC_API_URL at build
+// time only to make the browser call a different API host directly.
 const SERVER_API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"; // "" falls through
-const BROWSER_API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BROWSER_API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 export const API_URL = typeof window === "undefined" ? SERVER_API_URL : BROWSER_API_URL;
 
 async function get<T>(path: string): Promise<T> {
