@@ -2,10 +2,15 @@ import type {
   CollegeDashboard,
   CollegeSummary,
   DemoResearcherProfile,
+  ForYou,
   Overview,
   PeopleResponse,
+  ProfileInput,
   Project,
   ProjectDetail,
+  ProjectMatches,
+  ProjectMatchRequest,
+  ResearcherMatch,
   ResearcherProfile,
   ResearcherCompatibility,
   SearchResponse,
@@ -55,6 +60,17 @@ async function getOrNull<T>(path: string): Promise<T | null> {
   return res.json();
 }
 
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`${path} failed: ${res.status}`);
+  return res.json();
+}
+
 export function searchQueryString(params: SearchParams): string {
   const qs = new URLSearchParams();
   if (params.q) qs.set("q", params.q);
@@ -79,6 +95,14 @@ export const getResearcher = (id: string) => getOrNull<ResearcherProfile>(`/api/
 export const getResearcherCompatibility = (id: string) =>
   get<ResearcherCompatibility>(`/api/researchers/${encodeURIComponent(id)}/compatibility`);
 export const getDemoProfile = () => get<DemoResearcherProfile>("/api/demo-profile");
+// Demo-account personalization. Each takes the signed-in profile's interests; nothing is stored server-side.
+export const getForYou = (profile: ProfileInput) => post<ForYou>("/api/for-you", profile);
+export const matchResearcher = (id: string, profile: ProfileInput) =>
+  post<ResearcherMatch>(`/api/match/researcher/${encodeURIComponent(id)}`, profile);
+export const matchProjects = (profile: ProfileInput, ids: string[]) =>
+  ids.length
+    ? post<ProjectMatches>("/api/match/projects", { profile, ids } satisfies ProjectMatchRequest)
+    : Promise.resolve<ProjectMatches>({ matches: [] });
 export const getColleges = () => get<CollegeSummary[]>("/api/colleges");
 export const getCollege = (id: string) => getOrNull<CollegeDashboard>(`/api/colleges/${encodeURIComponent(id)}`);
 

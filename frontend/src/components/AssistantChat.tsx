@@ -5,7 +5,7 @@ import { Fragment, useState } from "react";
 import { API_URL } from "@/lib/api";
 import { KIND_LABELS } from "@/lib/colleges";
 import { count } from "@/lib/format";
-import type { AssistantPerson, AssistantRecord, AssistantReply, Project } from "@/lib/types";
+import type { AssistantPerson, AssistantRecord, AssistantReply, AssistantRequest, ProfileInput, Project } from "@/lib/types";
 import Icon from "./Icon";
 import { CollegeTag, KindTag, StatusChip } from "./Tags";
 
@@ -159,7 +159,14 @@ function Answer({ reply, onAsk }: { reply: AssistantReply; onAsk: (q: string) =>
   );
 }
 
-export default function AssistantChat() {
+export default function AssistantChat({
+  profile = null,
+  suggestions = SUGGESTIONS,
+}: {
+  /** Demo account: the signed-in profile's interests, sent so answers can lean toward them. */
+  profile?: ProfileInput | null;
+  suggestions?: string[];
+} = {}) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -177,7 +184,7 @@ export default function AssistantChat() {
       const res = await fetch(`${API_URL}/api/assistant`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify({ messages: history, ...(profile ? { profile } : {}) } satisfies AssistantRequest),
       });
       const body = await res.json().catch(() => ({}));
       reply = res.ok
@@ -196,7 +203,7 @@ export default function AssistantChat() {
         {messages.length === 0 && (
           <div className="space-y-2">
             <p className="text-small text-ink-3">Ask about people (who works on something) or about the research itself.</p>
-            {SUGGESTIONS.map((s) => (
+            {suggestions.map((s) => (
               <button
                 key={s}
                 onClick={() => send(s)}

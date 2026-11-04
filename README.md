@@ -58,7 +58,7 @@ Mapping rules live in `backend/app/colleges.py` (colleges), `backend/ingest/fund
 | `/projects/[id]` | Award: facts, funding by year, team, abstract, related awards | `GET /api/projects/:id`, `/api/projects?ids=` |
 | `/researchers`, `/researchers/[id]` | People directory and researcher profile | `GET /api/researchers`, `/api/researchers/:id` |
 | `/colleges`, `/colleges/[id]` | College index and dashboard | `GET /api/colleges`, `/api/colleges/:id` |
-| `/account` | Demo account: sign in as synthetic researcher Maya Patel, edit interests, see matches and saved items (`/profile` redirects here) | `GET /api/demo-profile`, `GET /api/topics` |
+| `/account` | Demo account: sign in as synthetic researcher Maya Patel, edit interests, see matches and saved items (`/profile` redirects here) | `GET /api/demo-profile`, `GET /api/topics`, `POST /api/for-you` |
 | `/ask` | Grounded assistant with numbered sources | `POST /api/assistant` |
 | `/about` | Problem, audiences, sources, how it works, limits, responsible AI | `GET /api/overview` |
 

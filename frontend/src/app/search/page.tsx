@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import AwardRow from "@/components/AwardRow";
 import SearchBar from "@/components/SearchBar";
-import { searchProjects, searchQueryString, type SearchParams } from "@/lib/api";
+import { matchProjects, searchProjects, searchQueryString, type SearchParams } from "@/lib/api";
 import { COLLEGES } from "@/lib/colleges";
+import { demoProfileInput } from "@/lib/demo";
 import type { CollegeId, FacetValue } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Search" };
@@ -74,6 +75,12 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
     funding: list(searchParams.funding),
   };
   const data = await searchProjects(params);
+  // Demo account: mark the results on this page that match Maya's interests. A failure only drops the markers.
+  const profile = demoProfileInput();
+  const matches = profile
+    ? await matchProjects(profile, data.results.map((p) => p.id)).catch(() => ({ matches: [] }))
+    : { matches: [] };
+  const matchReason = new Map(matches.matches.map((m) => [m.id, m.reasons.join(" · ")]));
   const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
   const filtered = [params.colleges, params.funders, params.status, params.topics, params.kinds, params.funding].some((v) => v?.length);
   const pageHref = (page: number) => `/search?${searchQueryString({ ...params, page })}`;
@@ -149,7 +156,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
           {data.results.length ? (
             <ul className="bg-surface border border-line rounded-xl px-5">
               {data.results.map((p) => (
-                <AwardRow key={p.id} project={p} showSummary />
+                <AwardRow key={p.id} project={p} showSummary interestMatch={matchReason.get(p.id)} />
               ))}
             </ul>
           ) : (

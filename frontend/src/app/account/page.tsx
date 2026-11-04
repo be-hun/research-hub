@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import CompatibilitySection from "@/components/CompatibilitySection";
+import ForYou from "@/components/ForYou";
 import InterestsEditor from "@/components/InterestsEditor";
 import SavedList from "@/components/SavedList";
 import Section from "@/components/Section";
 import SignOutButton from "@/components/SignOutButton";
 import { CollegeTag } from "@/components/Tags";
-import { getDemoProfile, getTopics } from "@/lib/api";
-import { isDemoSignedIn } from "@/lib/demo";
+import { getDemoProfile, getForYou, getTopics } from "@/lib/api";
+import { demoProfileInput } from "@/lib/demo";
 import { signInAsDemo } from "./actions";
 
 export const metadata: Metadata = { title: "My account" };
@@ -23,7 +23,8 @@ function SignedOut() {
         </p>
         <ul className="text-body text-ink-2 list-disc pl-5 space-y-1">
           <li>Research interests you can edit</li>
-          <li>Active grants and recruiting trials that match them, all from public records</li>
+          <li>Recruiting trials, active grants and people that match them, all from public records</li>
+          <li>Matches marked in search, on researcher pages and in Ask</li>
           <li>Saved researchers and records</li>
         </ul>
         <form action={signInAsDemo}>
@@ -39,12 +40,16 @@ function SignedOut() {
   );
 }
 
+const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+
 export default async function AccountPage() {
-  if (!isDemoSignedIn()) return <SignedOut />;
-  const [profile, topics] = await Promise.all([getDemoProfile(), getTopics()]);
+  const input = demoProfileInput();
+  if (!input) return <SignedOut />;
+  const [profile, topics, forYou] = await Promise.all([getDemoProfile(), getTopics(), getForYou(input)]);
+  const edited = !sameList(input.topics, profile.interests.map((t) => t.id)) || !sameList(input.terms, profile.terms);
 
   return (
-    <main className="max-w-page mx-auto px-4 sm:px-6 pt-8 space-y-10">
+    <main className="max-w-page mx-auto px-4 sm:px-6 pt-8 space-y-12">
       <header className="grid lg:grid-cols-[1.5fr_1fr] gap-8 items-start">
         <div className="flex gap-5 items-start">
           <div className="w-20 h-20 rounded-full bg-cherry-tint text-cherry font-serif text-h2 flex items-center justify-center shrink-0" aria-hidden="true">
@@ -69,11 +74,13 @@ export default async function AccountPage() {
         </div>
       </header>
 
-      <Section title="Your research interests" subtitle="Used to find active research and collaborators for you.">
-        <InterestsEditor topics={topics.map((t) => ({ id: t.id, name: t.name }))} starting={profile.interests} />
+      <Section title="Your research interests" subtitle="Change them and your matches below update.">
+        <InterestsEditor topics={topics.map((t) => ({ id: t.id, name: t.name }))} current={input} edited={edited} />
       </Section>
 
-      <CompatibilitySection compatibility={profile.compatibility} />
+      <Section id="for-you" title="For you" subtitle="Active research and people that share your interests.">
+        <ForYou data={forYou} />
+      </Section>
 
       <Section title="Saved" subtitle="Kept in this browser for the demo.">
         <SavedList />

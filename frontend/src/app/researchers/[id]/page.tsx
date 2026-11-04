@@ -12,9 +12,10 @@ import SaveButton from "@/components/SaveButton";
 import Section from "@/components/Section";
 import SectionTabs from "@/components/SectionTabs";
 import { CollegeTag } from "@/components/Tags";
-import { getResearcher, getResearcherCompatibility } from "@/lib/api";
+import YouAndResearcher from "@/components/YouAndResearcher";
+import { getResearcher, getResearcherCompatibility, matchResearcher } from "@/lib/api";
 import { COLLEGES, KIND_LABELS } from "@/lib/colleges";
-import { isDemoSignedIn } from "@/lib/demo";
+import { demoProfileInput } from "@/lib/demo";
 import { count, shortDate } from "@/lib/format";
 import type { Kind } from "@/lib/types";
 
@@ -40,9 +41,11 @@ export default async function ResearcherPage({
   params: { id: string };
   searchParams: { kind?: string };
 }) {
-  const [r, compatibility] = await Promise.all([
+  const demo = demoProfileInput();
+  const [r, compatibility, youMatch] = await Promise.all([
     getResearcher(params.id),
     getResearcherCompatibility(params.id),
+    demo ? matchResearcher(params.id, demo).catch(() => null) : null,
   ]);
   if (!r) notFound();
   const kind = KINDS.find((k) => k === searchParams.kind);
@@ -62,7 +65,7 @@ export default async function ResearcherPage({
           )}{" "}
           <span aria-hidden="true">/</span> <span className="text-ink-2">{r.name}</span>
         </nav>
-        {isDemoSignedIn() && (
+        {demo && (
           <SaveButton
             item={{ kind: "researcher", id: r.id, title: r.name, detail: [r.college && COLLEGES[r.college].short, r.department].filter(Boolean).join(" · ") }}
           />
@@ -70,6 +73,8 @@ export default async function ResearcherPage({
       </div>
 
       <ResearcherHeader profile={r} />
+
+      {youMatch && <YouAndResearcher name={r.name} match={youMatch} />}
 
       <SectionTabs
         label="On this profile"

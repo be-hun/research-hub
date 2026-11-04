@@ -2,10 +2,9 @@
 
 import { useSyncExternalStore } from "react";
 
-// What the demo account changes, kept only in this browser. Storage can be missing or blocked (private windows,
-// cleared site data), so every access is guarded and the state also lives in memory for the current page.
-
-export const MAX_INTERESTS = 8; // matches ProfileInput.topics on the backend (issue #5)
+// The demo account's saved items, kept only in this browser. (Interests live in a cookie so the server can
+// personalize pages; see demo.ts.) Storage can be missing or blocked (private windows, cleared site data), so every
+// access is guarded and the list also lives in memory for the current page.
 
 export interface SavedItem {
   kind: "record" | "researcher";
@@ -14,37 +13,27 @@ export interface SavedItem {
   detail?: string;
 }
 
-export interface DemoState {
-  /** Topic ids Maya follows; null means "her starting interests" from GET /api/demo-profile. */
-  topics: string[] | null;
-  saved: SavedItem[];
-}
-
-const KEY = "rc_demo_state";
-const EMPTY: DemoState = { topics: null, saved: [] };
+const KEY = "rc_demo_saved";
+const EMPTY: SavedItem[] = [];
 const listeners = new Set<() => void>();
 let cachedRaw: string | null | undefined;
-let cached: DemoState = EMPTY;
+let cached: SavedItem[] = EMPTY;
 
-const isString = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 200;
+const isString = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 400;
 
-function parse(raw: string | null): DemoState {
+function parse(raw: string | null): SavedItem[] {
   if (!raw) return EMPTY;
   try {
     const value = JSON.parse(raw);
-    const topics = Array.isArray(value?.topics) ? value.topics.filter(isString).slice(0, MAX_INTERESTS) : null;
-    const saved = Array.isArray(value?.saved)
-      ? value.saved.filter(
-          (s: SavedItem) => (s?.kind === "record" || s?.kind === "researcher") && isString(s.id) && isString(s.title),
-        )
-      : [];
-    return { topics, saved };
+    return Array.isArray(value)
+      ? value.filter((s: SavedItem) => (s?.kind === "record" || s?.kind === "researcher") && isString(s.id) && isString(s.title))
+      : EMPTY;
   } catch {
     return EMPTY;
   }
 }
 
-function read(): DemoState {
+function read(): SavedItem[] {
   let raw: string | null;
   try {
     raw = window.localStorage.getItem(KEY);
@@ -58,7 +47,7 @@ function read(): DemoState {
   return cached;
 }
 
-function write(next: DemoState) {
+function write(next: SavedItem[]) {
   const raw = JSON.stringify(next);
   cachedRaw = raw;
   cached = next;
@@ -80,24 +69,17 @@ function subscribe(fn: () => void) {
   };
 }
 
-export function useDemoState(): DemoState {
+export function useSaved(): SavedItem[] {
   return useSyncExternalStore(subscribe, read, () => EMPTY);
 }
 
-export function setTopics(topics: string[] | null) {
-  write({ ...read(), topics: topics && topics.slice(0, MAX_INTERESTS) });
-}
-
 export function toggleSaved(item: SavedItem) {
-  const state = read();
-  const exists = state.saved.some((s) => s.kind === item.kind && s.id === item.id);
-  write({
-    ...state,
-    saved: exists ? state.saved.filter((s) => !(s.kind === item.kind && s.id === item.id)) : [item, ...state.saved],
-  });
+  const saved = read();
+  const exists = saved.some((s) => s.kind === item.kind && s.id === item.id);
+  write(exists ? saved.filter((s) => !(s.kind === item.kind && s.id === item.id)) : [item, ...saved]);
 }
 
-export function clearDemoState() {
+export function clearSaved() {
   cachedRaw = null;
   cached = EMPTY;
   try {

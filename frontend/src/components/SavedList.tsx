@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { toggleSaved, useDemoState } from "@/lib/demoStore";
+import { toggleSaved, useSaved } from "@/lib/demoStore";
 import Icon from "./Icon";
 
 /** Records and researchers the demo account bookmarked, newest first. */
 export default function SavedList() {
-  const { saved } = useDemoState();
+  const saved = useSaved();
   if (saved.length === 0) {
     return (
       <div className="bg-surface border border-line rounded-xl p-5 text-small text-ink-2">

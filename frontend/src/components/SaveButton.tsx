@@ -1,11 +1,11 @@
 "use client";
 
-import { type SavedItem, toggleSaved, useDemoState } from "@/lib/demoStore";
+import { type SavedItem, toggleSaved, useSaved } from "@/lib/demoStore";
 import Icon from "./Icon";
 
 /** Bookmark a record or researcher to the demo account. Shown only when signed in. */
 export default function SaveButton({ item }: { item: SavedItem }) {
-  const { saved } = useDemoState();
+  const saved = useSaved();
   const on = saved.some((s) => s.kind === item.kind && s.id === item.id);
   return (
     <button
