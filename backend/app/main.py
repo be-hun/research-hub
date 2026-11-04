@@ -133,6 +133,23 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
     def demo_profile(request: Request) -> models.DemoResearcherProfile:
         return compatibility.demo_profile(db(request))
 
+    @app.post("/api/for-you")
+    def for_you(request: Request, profile: models.ProfileInput) -> models.ForYou:
+        return compatibility.for_you(db(request), profile)
+
+    @app.post("/api/match/researcher/{researcher_id}")
+    def match_researcher(
+        request: Request, researcher_id: str, profile: models.ProfileInput
+    ) -> models.ResearcherMatch:
+        result = compatibility.match_researcher(db(request), researcher_id, profile)
+        if result is None:
+            raise HTTPException(404, "Researcher not found")
+        return result
+
+    @app.post("/api/match/projects")
+    def match_projects(request: Request, body: models.ProjectMatchRequest) -> models.ProjectMatches:
+        return compatibility.match_projects(db(request), body.profile, body.ids)
+
     @app.get("/api/colleges")
     def college_list(request: Request) -> list[models.CollegeSummary]:
         return dashboards.colleges(db(request))
@@ -158,7 +175,7 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
     @app.post("/api/assistant")
     def assistant_reply(request: Request, body: models.AssistantRequest) -> models.AssistantReply:
         try:
-            return assistant.answer(db(request), body.messages)
+            return assistant.answer(db(request), body.messages, body.profile)
         except ai.AIUnavailable as exc:
             raise HTTPException(503, str(exc)) from exc
 

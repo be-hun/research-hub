@@ -198,6 +198,7 @@ export interface DemoResearcherProfile {
   isSynthetic: boolean;
   bio: string;
   interests: TopicRef[];
+  terms: string[];
   compatibility: ResearcherCompatibility;
 }
 
@@ -205,12 +206,46 @@ export interface CollaboratorMatch {
   researcherId: string;
   name: string;
   initials: string;
-  college: CollegeId;
+  college: CollegeId | null;
   title: string;
   score: number;
   reasons: string[];
   citations: string[];
   sharedTopics: string[];
+}
+
+export interface ProfileInput {
+  college?: CollegeId | null;
+  topics: string[];
+  terms: string[];
+}
+
+export interface ForYou {
+  trials: CompatibilityMatch[];
+  grants: CompatibilityMatch[];
+  collaborators: CollaboratorMatch[];
+}
+
+export interface ResearcherMatch {
+  score: number;
+  reasons: string[];
+  sharedTopics: TopicRef[];
+  records: Project[];
+}
+
+export interface ProjectMatchRequest {
+  profile: ProfileInput;
+  ids: string[];
+}
+
+export interface ProjectMatch {
+  id: string;
+  score: number;
+  reasons: string[];
+}
+
+export interface ProjectMatches {
+  matches: ProjectMatch[];
 }
 
 export interface ChatMessage {
@@ -220,6 +255,7 @@ export interface ChatMessage {
 
 export interface AssistantRequest {
   messages: ChatMessage[];
+  profile?: ProfileInput | null;
 }
 
 export interface AssistantRecord {
