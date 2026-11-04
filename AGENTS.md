@@ -36,6 +36,18 @@ Rules:
 - Before taking on a task, check open PRs (`gh pr list`) so two agents don't build the same thing.
 - If your change touches a file another open PR also changes, say so in the PR description.
 
+## Frontend/backend handoff
+
+For the current feature cycle, Claude Code owns frontend work under `frontend/`, while GitHub Copilot owns
+backend work under `backend/`, ingestion, API contracts and related tests. Both agents use this repository as
+the source of truth: the API contract in `backend/app/models.py`, `frontend/src/lib/types.ts` and `docs/api.md`
+must stay synchronized, and neither agent should copy implementation state through chat or untracked files.
+
+The handoff is a pull request into `backend-foundation`. A frontend PR must identify the backend endpoints and
+types it consumes; a backend PR must identify the frontend screens and types it enables. After both sides are
+merged, validate the integrated checkout, then deploy only the merged `backend-foundation` commit to the MVP
+server. The server is a representation of the repository, not a separate source of truth.
+
 ## Running two copies at once
 
 The main checkout keeps the usual ports. A second worktree uses different ones so both can run side by side:
