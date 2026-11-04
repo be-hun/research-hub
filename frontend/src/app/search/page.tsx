@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import AwardRow from "@/components/AwardRow";
 import SearchBar from "@/components/SearchBar";
-import { searchProjects, searchQueryString } from "@/lib/api";
+import { searchProjects, searchQueryString, type SearchParams } from "@/lib/api";
 import { COLLEGES } from "@/lib/colleges";
-import type { CollegeId, FacetValue, SearchParams } from "@/lib/types";
+import type { CollegeId, FacetValue } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Search" };
 

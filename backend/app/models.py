@@ -1,4 +1,8 @@
-"""Response models. Field names mirror frontend/src/lib/types.ts exactly (camelCase)."""
+"""Response models: the single source of truth for the API contract (camelCase field names).
+
+frontend/src/lib/types.ts is generated from this file by `uv run python -m app.contract`, and `#` comments here
+carry over to it, so document fields here. A test fails when types.ts is stale.
+"""
 
 from typing import Literal
 
@@ -7,7 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 CollegeId = Literal["medicine", "public-health", "science-tech", "engineering", "business", "media", "education",
                     "liberal-arts"]
 Verification = Literal["faculty-confirmed", "public-award-record", "public-registry-record", "public-publication-record"]
-Kind = Literal["award", "trial", "publication"]
+Kind = Literal["award", "trial", "publication"]  # grant, clinical trial, publication
 
 
 class PI(BaseModel):
@@ -33,7 +37,7 @@ class Project(BaseModel):
     colleges: list[CollegeId]
     verification: Verification
     pi: PI
-    funder: str
+    funder: str  # grants: "NIH R01"; trials: lead sponsor; publications: first funders
     agency: str  # grants: NIH, NSF, DOD...; trials: lead sponsor; publications: journal
     active: bool  # the source's own flag; for grants not proof a study is recruiting
     statusLabel: str  # "Active", "Recruiting", "Published 2025", ...
@@ -42,8 +46,8 @@ class Project(BaseModel):
     startYear: int
     endYear: int
     source: Source
-    updatedAt: str
-    match: Match | None = None
+    updatedAt: str  # ISO date
+    match: Match | None = None  # only on search results: which stored fields matched the query
 
 
 class TeamMember(BaseModel):
@@ -51,7 +55,7 @@ class TeamMember(BaseModel):
     name: str
     role: str
     department: str
-    college: CollegeId | None  # None when the source names no department to map
+    college: CollegeId | None  # null when the source names no department to map
 
 
 class Funding(BaseModel):
@@ -89,7 +93,7 @@ class FunderRef(BaseModel):
 
 
 class ProjectDetail(Project):
-    abstract: list[str]
+    abstract: list[str]  # paragraphs
     methodologies: list[str]
     facts: list[Fact]  # the key facts for this kind of record, in display order
     funders: list[FunderRef]
@@ -101,6 +105,7 @@ class ProjectDetail(Project):
     relatedProjectIds: list[str]
 
 
+# high: one source person ID; medium: name match within one source; low: combined across sources by name.
 IdentityConfidence = Literal["high", "medium", "low"]
 
 

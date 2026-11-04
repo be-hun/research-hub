@@ -3,8 +3,39 @@
 The browser calls these endpoints at `/api/...` on the site's own origin; a rewrite in `frontend/next.config.mjs`
 forwards them to the backend (`API_URL`, default `http://localhost:8000`), so CORS doesn't apply. Set
 `NEXT_PUBLIC_API_URL` at build time only to call a different API host directly. In production the droplet's nginx
-serves `/api/` itself, so the rewrite isn't reached; server-side rendering always uses `API_URL`. Response models live in `backend/app/models.py` and are mirrored in
-`frontend/src/lib/types.ts`; a backend test fails if the two drift apart.
+serves `/api/` itself, so the rewrite isn't reached; server-side rendering always uses `API_URL`.
+
+**Single source of truth.** Response models live in `backend/app/models.py` and routes in `backend/app/main.py`.
+`frontend/src/lib/types.ts` and the endpoint table below are generated from them, so don't edit either by hand.
+After changing a model or route, run `uv run python -m app.contract` in `backend/` and commit the result. CI fails
+when the generated files are stale. This page adds what code can't say: behaviour, rules and limits.
+
+## Endpoints
+
+<!-- BEGIN GENERATED: endpoints (uv run python -m app.contract) -->
+
+| Method | Path | Parameters | Returns |
+| --- | --- | --- | --- |
+| `GET` | `/api/health` | — | `object` |
+| `GET` | `/api/search` | `q`, `page`, `college` (repeatable), `funder` (repeatable), `verification` (repeatable), `status` (repeatable), `topic` (repeatable), `kind` (repeatable), `funding` (repeatable) | `SearchResponse` |
+| `GET` | `/api/overview` | — | `Overview` |
+| `GET` | `/api/topics` | — | `TopicSummary[]` |
+| `GET` | `/api/topics/{topic_id}` | — | `TopicDetail` |
+| `GET` | `/api/projects/featured` | — | `Project[]` |
+| `GET` | `/api/projects/{project_id}` | — | `ProjectDetail` |
+| `GET` | `/api/projects` | `ids` | `Project[]` |
+| `GET` | `/api/researchers` | `q`, `page`, `college` (repeatable), `kind`, `sort` | `PeopleResponse` |
+| `GET` | `/api/researchers/{researcher_id}` | — | `ResearcherProfile` |
+| `GET` | `/api/researchers/{researcher_id}/projects` | — | `ResearcherProject[]` |
+| `GET` | `/api/researchers/{researcher_id}/collaborators` | — | `ResearcherCollaborator[]` |
+| `GET` | `/api/researchers/{researcher_id}/compatibility` | — | `ResearcherCompatibility` |
+| `GET` | `/api/demo-profile` | — | `DemoResearcherProfile` |
+| `GET` | `/api/colleges` | — | `CollegeSummary[]` |
+| `GET` | `/api/colleges/{college_id}` | — | `CollegeDashboard` |
+| `GET` | `/api/colleges/{college_id}/projects` | `page`, `kind` (repeatable) | `SearchResponse` |
+| `POST` | `/api/assistant` | body: `AssistantRequest` | `AssistantReply` |
+
+<!-- END GENERATED: endpoints -->
 
 Every record has a `kind`: `award` (grant), `trial` (clinical trial) or `publication`, a `statusLabel` in the
 source's own words, and `fundingTypes` (federal, industry, foundations & nonprofits, Temple, other universities &
@@ -58,8 +89,8 @@ types, `fundingByYear` (grants), `topics`, team, `relatedProjectIds`. 404 if unk
 
 ## `GET /api/projects?ids=a,b,c`
 
-Returns `Project[]` for the given ids, in order. `GET /api/projects/featured` and `GET /api/researchers/:id` also
-exist but the current frontend does not use them.
+Returns `Project[]` for the given ids, in order. `GET /api/projects/featured` also exists, but the current frontend
+doesn't use it.
 
 ## `GET /api/researchers/:id`
 
@@ -77,6 +108,12 @@ Returns `ResearcherProfile`, or `404` when the id is unknown **or no stored reco
 - `summary` is a template over the counts; no model is involved.
 
 `GET /api/researchers/:id/projects` and `GET /api/researchers/:id/collaborators` return just those lists.
+
+## `GET /api/researchers`
+
+The People directory. Returns `PeopleResponse`: researchers matching `q` (up to 200 characters), filtered by
+`college` (unknown ids are ignored) and `kind`, sorted by `records` (default) or `name`, one page at a time.
+`colleges` gives people per college for the current query, ignoring the college filter.
 
 ## `GET /api/researchers/:id/compatibility`
 
@@ -111,11 +148,17 @@ for readiness checks.
 
 ## `POST /api/assistant`
 
-Body: `{ messages: { role: "user" | "assistant", text: string }[] }` (1–8 messages, each up to 4000 characters, last one from the user).
-Returns `{ reply: string, sources: { n: number, id: string, title: string, label: string, url: string }[] }`.
+Body: `AssistantRequest`, i.e. `{ messages: { role: "user" | "assistant", text: string }[] }` (1–8 messages, each up to
+4000 characters, last one from the user). Returns `AssistantReply`: `{ mode, summary, records, people, followUps }`.
 
-- The backend searches stored records first. If nothing matches, it replies "nothing found" without calling the model.
-- The model sees only the retrieved records and cites them inline as `[n]`. `sources` lists each cited record; citations that don't point at a retrieved record are dropped, and an answer with no valid citation is replaced with a "couldn't answer" reply.
+- The backend searches stored records first. If nothing matches, it returns `mode: "none"` without calling the model.
+- The model sees only the retrieved records. It answers in `mode: "research"` (`records`: the cited records, each a
+  full `Project` from the database plus a one-line `takeaway`) or `mode: "people"` (`people`: researchers on those
+  records, with their records and totals read from the database plus a short `focus`). The list for the other mode
+  is empty.
+- The `summary` cites records inline as `[n]`. Citations that don't point at a record or person shown are dropped,
+  people who aren't on a retrieved record's team are dropped, and a summary left with no valid citation becomes a
+  `mode: "none"` "couldn't answer" reply. `followUps` suggests next questions.
 - `503` with `{ detail }` when the AI service is unavailable or the API key is missing or rejected. The detail is safe to show users.
 - Model calls live only in `backend/app/ai.py`. `AI_PROVIDER=anthropic` is the documented default; Gemini remains supported when explicitly configured. Set `AI_TIMEOUT_SECONDS` to control the provider timeout.
 

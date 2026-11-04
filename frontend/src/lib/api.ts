@@ -3,17 +3,35 @@ import type {
   CollegeSummary,
   DemoResearcherProfile,
   Overview,
-  PeopleParams,
   PeopleResponse,
   Project,
   ProjectDetail,
   ResearcherProfile,
   ResearcherCompatibility,
-  SearchParams,
   SearchResponse,
   TopicDetail,
   TopicSummary,
 } from "./types";
+
+// Request parameters the pages build. Response types are generated into ./types from backend/app/models.py.
+export interface SearchParams {
+  q: string;
+  page?: number;
+  colleges?: string[];
+  funders?: string[];
+  status?: string[];
+  topics?: string[];
+  kinds?: string[];
+  funding?: string[];
+}
+
+export interface PeopleParams {
+  q?: string;
+  page?: number;
+  colleges?: string[];
+  kind?: string;
+  sort?: string;
+}
 
 // The backend API (see backend/ and docs/api.md).
 // Server components call the API directly (API_URL, read at runtime). The browser calls /api/... on the site's own
