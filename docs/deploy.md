@@ -11,12 +11,22 @@ What lives only on the server, and is never committed:
 | Database | `backend/data/hub.db` | `uv run python -m ingest.run` |
 | Backups | outside the deploy folder | `uv run python -m app.backup` |
 
+## The server
+
+| Item | Value |
+| --- | --- |
+| Checkout | `/opt/research-hub` (clone of `be-hun/research-hub`) |
+| Backend | `research-hub-api.service` (FastAPI) |
+| Frontend | `research-hub-web.service` (Next.js) |
+| Reverse proxy | nginx, site `/etc/nginx/sites-enabled/research-hub` (serves `/api/` and the web app) |
+| Verified | 4 Nov 2026: HEAD `108125a` = `origin/main`, no local edits |
+
 ## Deploy a commit
 
-Run on the server, in the checkout. `<service>` names stand for whatever the server uses; record the real ones
-here once they're confirmed.
+Run on the server as root:
 
 ```bash
+cd /opt/research-hub
 git fetch origin
 git status --porcelain            # must print nothing: the server has no local edits
 git checkout --detach origin/main # or a specific commit on main
@@ -27,15 +37,16 @@ uv run python -m app.backup       # keep the previous database until the new dep
 cd ../frontend
 npm ci && npm run build
 
-sudo systemctl restart <backend-service> <frontend-service>
+systemctl restart research-hub-api research-hub-web
 ```
 
 ## Verify
 
 ```bash
-curl -fsS https://<host>/api/health        # {"ok":true}
-git -C <checkout> rev-parse HEAD           # equals the commit you meant to deploy
-git -C <checkout> merge-base --is-ancestor HEAD origin/main && echo "on main"
+curl -fsS http://localhost/api/health                  # {"ok":true} through nginx
+git -C /opt/research-hub rev-parse --short HEAD        # equals the commit you meant to deploy
+git -C /opt/research-hub merge-base --is-ancestor HEAD origin/main && echo "on main"
+systemctl is-active research-hub-api research-hub-web  # active, active
 ```
 
 Then open the Home page, a project page, and `/profile` (the synthetic demo profile).
