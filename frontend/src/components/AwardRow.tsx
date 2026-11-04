@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { money } from "@/lib/format";
 import type { Project } from "@/lib/types";
+import Icon from "./Icon";
 import { CollegeTag, KindTag, SourceTag, StatusChip } from "./Tags";
 
 function Meta({ project }: { project: Project }) {
@@ -32,11 +33,14 @@ export default function AwardRow({
   project,
   showSummary = false,
   context,
+  interestMatch,
 }: {
   project: Project;
   showSummary?: boolean;
   /** Extra line under the people line, e.g. the profile owner's role on this record. */
   context?: string;
+  /** Demo account only: why this record matches the signed-in profile's interests. */
+  interestMatch?: string;
 }) {
   const people =
     project.kind === "trial" ? `Sponsor: ${project.funder}` : project.pi.name + (project.pi.department ? ` · ${project.pi.department}` : "");
@@ -57,6 +61,12 @@ export default function AwardRow({
           </h3>
           {people.trim() && <p className="text-small text-ink-3 mt-1 truncate">{people}</p>}
           {context && <p className="text-tiny text-ink-2 mt-1">{context}</p>}
+          {interestMatch && (
+            <p className="inline-flex items-start gap-1 text-tiny font-medium text-cherry bg-cherry-tint rounded-md px-2 py-1 mt-2">
+              <Icon name="star" size={14} className="mt-px" />
+              <span>Matches your interests · {interestMatch}</span>
+            </p>
+          )}
           {showSummary && <p className="text-small text-ink-2 mt-2 line-clamp-2">{project.summary}</p>}
           {project.kind !== "award" && project.fundingTypes.length > 0 && (
             <p className="text-tiny text-ink-3 mt-1.5">Funding: {project.fundingTypes.join(" · ")}</p>

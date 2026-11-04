@@ -2,21 +2,39 @@ import Image from "next/image";
 import Link from "next/link";
 import AwardRow from "@/components/AwardRow";
 import BarList from "@/components/charts/BarList";
+import ForYou from "@/components/ForYou";
 import SearchBar from "@/components/SearchBar";
 import Section from "@/components/Section";
 import StatTiles from "@/components/StatTiles";
 import TopicTile from "@/components/TopicTile";
-import { getOverview } from "@/lib/api";
+import { getForYou, getOverview } from "@/lib/api";
 import { COLLEGES } from "@/lib/colleges";
+import { demoProfileInput } from "@/lib/demo";
 import { count, money, shortDate } from "@/lib/format";
 
 const EXAMPLES = ["machine learning", "battery energy storage", "opioid addiction", "Alzheimer's disease"];
 
 export default async function HomePage() {
-  const o = await getOverview();
+  const profile = demoProfileInput();
+  const [o, forYou] = await Promise.all([getOverview(), profile ? getForYou(profile).catch(() => null) : null]);
 
   return (
     <main>
+      {/* Demo account: Maya's matches come first */}
+      {forYou && (
+        <section className="bg-surface border-b border-line">
+          <div className="max-w-page mx-auto px-4 sm:px-6 py-10">
+            <Section
+              title="For you, Maya"
+              subtitle="New and active research that shares your interests. Synthetic demo account."
+              action={{ href: "/account#for-you", label: "See all and edit interests" }}
+            >
+              <ForYou data={forYou} limit={3} />
+            </Section>
+          </div>
+        </section>
+      )}
+
       {/* Hero */}
       <section className="max-w-page mx-auto px-4 sm:px-6 pt-12 pb-14 grid lg:grid-cols-[1.1fr_1fr] gap-10 lg:gap-14 items-center">
         <div>

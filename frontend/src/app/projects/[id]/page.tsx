@@ -3,9 +3,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import AwardRow from "@/components/AwardRow";
 import YearBars from "@/components/charts/YearBars";
+import SaveButton from "@/components/SaveButton";
 import Section from "@/components/Section";
 import { CollegeTag, KindTag, SourceTag, StatusChip } from "@/components/Tags";
 import { getProject, getProjects } from "@/lib/api";
+import { KIND_LABELS } from "@/lib/colleges";
+import { isDemoSignedIn } from "@/lib/demo";
 import { money, shortDate } from "@/lib/format";
 import { FUNDER_SERIES } from "@/lib/series";
 
@@ -34,12 +37,19 @@ export default async function ProjectPage({ params }: { params: { id: string } }
 
   return (
     <main className="max-w-page mx-auto px-4 sm:px-6 pt-8 space-y-10">
-      <nav aria-label="Breadcrumb" className="text-small text-ink-3">
-        <Link href={`/search?kind=${project.kind}`} className="hover:text-ink">
-          {{ award: "Grants", trial: "Clinical trials", publication: "Publications" }[project.kind]}
-        </Link>{" "}
-        <span aria-hidden="true">/</span> <span className="text-ink-2">{project.facts[project.facts.length - 1]?.value}</span>
-      </nav>
+      <div className="flex items-start justify-between gap-4">
+        <nav aria-label="Breadcrumb" className="text-small text-ink-3 min-w-0 break-words">
+          <Link href={`/search?kind=${project.kind}`} className="hover:text-ink">
+            {{ award: "Grants", trial: "Clinical trials", publication: "Publications" }[project.kind]}
+          </Link>{" "}
+          <span aria-hidden="true">/</span> <span className="text-ink-2">{project.facts[project.facts.length - 1]?.value}</span>
+        </nav>
+        {isDemoSignedIn() && (
+          <SaveButton
+            item={{ kind: "record", id: project.id, title: project.title, detail: [KIND_LABELS[project.kind], project.pi.name].filter(Boolean).join(" · ") }}
+          />
+        )}
+      </div>
 
       <header className="max-w-4xl">
         <div className="flex flex-wrap items-center gap-3 mb-3">

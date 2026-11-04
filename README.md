@@ -58,11 +58,11 @@ Mapping rules live in `backend/app/colleges.py` (colleges), `backend/ingest/fund
 | `/projects/[id]` | Award: facts, funding by year, team, abstract, related awards | `GET /api/projects/:id`, `/api/projects?ids=` |
 | `/researchers`, `/researchers/[id]` | People directory and researcher profile | `GET /api/researchers`, `/api/researchers/:id` |
 | `/colleges`, `/colleges/[id]` | College index and dashboard | `GET /api/colleges`, `/api/colleges/:id` |
-| `/profile` | Synthetic demo profile with compatible active records | `GET /api/demo-profile` |
+| `/account` | Demo account: sign in as synthetic researcher Maya Patel, edit interests, see matches and saved items (`/profile` redirects here) | `GET /api/demo-profile`, `GET /api/topics`, `POST /api/for-you` |
 | `/ask` | Grounded assistant with numbered sources | `POST /api/assistant` |
 | `/about` | Problem, audiences, sources, how it works, limits, responsible AI | `GET /api/overview` |
 
-Retired routes (`/opportunities`, `/pathways`, `/matches`, `/responsible-ai`, `/assistant`) redirect to
+Retired routes (`/opportunities`, `/pathways`, `/matches`, `/responsible-ai`, `/assistant`, `/profile`) redirect to
 their replacements. Design system and images come from the Stitch project "ResearchConnect – v4 Data Redesign"; chart
 colors were checked with a palette validator (lightness, chroma, colorblind separation, contrast). Photos are
 AI-generated illustrations and say so in the footer.
