@@ -1,27 +1,35 @@
-// API contract shared with the backend (backend/app/models.py). See docs/api.md.
+// GENERATED from backend/app/models.py by `uv run python -m app.contract`. Do not edit by hand:
+// change the Pydantic model, then regenerate. Request-parameter types live in lib/api.ts.
 
-export type CollegeId =
-  | "medicine"
-  | "public-health"
-  | "science-tech"
-  | "engineering"
-  | "business"
-  | "media"
-  | "education"
-  | "liberal-arts";
+export type CollegeId = "medicine" | "public-health" | "science-tech" | "engineering" | "business" | "media" | "education" | "liberal-arts";
 
 export type Verification = "faculty-confirmed" | "public-award-record" | "public-registry-record" | "public-publication-record";
 
 export type Kind = "award" | "trial" | "publication"; // grant, clinical trial, publication
 
+export interface PI {
+  name: string;
+  department: string;
+}
+
+export interface Source {
+  label: string;
+  url: string;
+}
+
+export interface Match {
+  reason: string;
+  evidence: string[];
+}
+
 export interface Project {
   id: string;
-  kind: Kind;
+  kind: Kind; // grant ("award"), clinical trial or publication
   title: string;
   summary: string;
   colleges: CollegeId[];
   verification: Verification;
-  pi: { name: string; department: string };
+  pi: PI;
   funder: string; // grants: "NIH R01"; trials: lead sponsor; publications: first funders
   agency: string; // grants: NIH, NSF, DOD...; trials: lead sponsor; publications: journal
   active: boolean; // the source's own flag; for grants not proof a study is recruiting
@@ -30,10 +38,9 @@ export interface Project {
   amount: number | null; // grants: obligated in the latest fiscal year
   startYear: number;
   endYear: number;
-  source: { label: string; url: string };
+  source: Source;
   updatedAt: string; // ISO date
-  /** Present only on search results: which stored fields matched the query. */
-  match?: { reason: string; evidence: string[] } | null;
+  match?: Match | null; // only on search results: which stored fields matched the query
 }
 
 export interface TeamMember {
@@ -41,7 +48,20 @@ export interface TeamMember {
   name: string;
   role: string;
   department: string;
-  college: CollegeId | null; // null when the source record names no college
+  college: CollegeId | null; // null when the source names no department to map
+}
+
+export interface Funding {
+  agency: string;
+  mechanism: string;
+  period: string;
+  total: string;
+  awardNumber: string;
+}
+
+export interface Students {
+  skills: string[];
+  notice: string;
 }
 
 export interface YearAmount {
@@ -70,12 +90,173 @@ export interface ProjectDetail extends Project {
   methodologies: string[];
   facts: Fact[]; // the key facts for this kind of record, in display order
   funders: FunderRef[];
-  funding: { agency: string; mechanism: string; period: string; total: string; awardNumber: string };
+  funding: Funding;
   fundingByYear: YearAmount[];
   topics: TopicRef[];
   team: TeamMember[];
-  students: { skills: string[]; notice: string };
+  students: Students;
   relatedProjectIds: string[];
+}
+
+/** high: one source person ID; medium: name match within one source; low: combined across sources by name. */
+export type IdentityConfidence = "high" | "medium" | "low";
+
+export interface ResearcherCounts {
+  grants: number;
+  trials: number;
+  publications: number;
+}
+
+export interface ResearcherProject {
+  role: string; // their role on the record, as the source lists it
+  project: Project;
+}
+
+export interface ResearcherCollaborator {
+  researcherId: string;
+  name: string;
+  college: CollegeId | null;
+  department: string;
+  identityConfidence: IdentityConfidence;
+  sharedRecords: number;
+  crossCollege: boolean; // both have a college and the colleges differ
+  projectIds: string[]; // the shared records: every collaborator link is backed by these
+}
+
+export interface ResearcherAlias {
+  source: string; // source label, e.g. "NIH RePORTER"
+  name: string; // the name as that source spells it
+  sourcePersonId: string | null;
+  evidence: "source-person-id" | "name-within-source" | "same-name-across-sources";
+  lastSeen: string | null;
+}
+
+export interface ResearcherSource {
+  label: string;
+  url: string;
+  records: number;
+  lastSeen: string | null;
+}
+
+export interface ResearcherFocus {
+  id: string; // topic id
+  name: string;
+  image: string | null;
+  records: number;
+}
+
+export interface ResearcherYear {
+  year: number; // start year
+  grants: number;
+  trials: number;
+  publications: number;
+}
+
+export interface ResearcherProfile {
+  id: string;
+  name: string;
+  initials: string;
+  college: CollegeId | null;
+  department: string;
+  verified: boolean; // confirmed by the researcher; always false until the correction workflow exists
+  identityConfidence: IdentityConfidence;
+  identityNote: string;
+  orcid?: string | null;
+  roles: string[]; // the roles sources list them in ("Contact PI", "Author"...); never a job title
+  summary: string; // built from counts, not generated
+  focus: ResearcherFocus[]; // plain-language topics of their records
+  terms: string[]; // subject terms frequent in their records and rare elsewhere
+  counts: ResearcherCounts;
+  byYear: ResearcherYear[]; // records by start year, oldest first
+  projects: ResearcherProject[]; // every record they are listed on, newest first
+  collaborators: ResearcherCollaborator[];
+  aliases: ResearcherAlias[];
+  sources: ResearcherSource[];
+  about: string;
+}
+
+export interface CompatibilityMatch {
+  project: Project;
+  score: number;
+  reasons: string[];
+  sharedTopics: TopicRef[];
+}
+
+export interface ResearcherCompatibility {
+  researcherId: string;
+  researcherName: string;
+  isSynthetic: boolean;
+  matches: CompatibilityMatch[];
+}
+
+export interface DemoResearcherProfile {
+  id: string;
+  name: string;
+  initials: string;
+  college: CollegeId;
+  department: string;
+  isSynthetic: boolean;
+  bio: string;
+  interests: TopicRef[];
+  compatibility: ResearcherCompatibility;
+}
+
+export interface CollaboratorMatch {
+  researcherId: string;
+  name: string;
+  initials: string;
+  college: CollegeId;
+  title: string;
+  score: number;
+  reasons: string[];
+  citations: string[];
+  sharedTopics: string[];
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
+export interface AssistantRequest {
+  messages: ChatMessage[];
+}
+
+export interface AssistantRecord {
+  n: number; // the [n] number the summary cites
+  takeaway: string; // one line from the model: why this record answers the question
+  project: Project; // facts come from the database, not the model
+}
+
+export interface PersonRecord {
+  n: number;
+  id: string;
+  title: string;
+  kind: Kind;
+  role: string; // their role on it: "Contact PI", "Author", "Study official"...
+}
+
+export interface PersonCounts {
+  grants: number;
+  trials: number;
+  publications: number;
+}
+
+export interface AssistantPerson {
+  name: string;
+  department: string;
+  college: CollegeId | null;
+  focus: string; // a few words from the model
+  records: PersonRecord[]; // retrieved records they appear on
+  totals: PersonCounts; // every Temple record they appear on
+}
+
+export interface AssistantReply {
+  mode: "people" | "research" | "none"; // none: nothing found or not answerable
+  summary: string;
+  records: AssistantRecord[];
+  people: AssistantPerson[];
+  followUps: string[];
 }
 
 export interface FacetValue {
@@ -103,16 +284,7 @@ export interface SearchResponse {
   facets: Facets;
 }
 
-export interface SearchParams {
-  q: string;
-  page?: number;
-  colleges?: string[];
-  funders?: string[];
-  status?: string[];
-  topics?: string[];
-  kinds?: string[];
-  funding?: string[];
-}
+// ---------- explore ----------
 
 export interface Totals {
   awards: number;
@@ -129,7 +301,7 @@ export interface SourceSummary {
   url: string;
   records: number;
   kind: string; // "grants", "clinical trials", "publications"
-  coverage: string;
+  coverage: string; // e.g. "Fiscal years 2022–2026"
 }
 
 export interface CollegeStat {
@@ -150,7 +322,7 @@ export interface FundingTypeStat {
 }
 
 export interface AgencyStat {
-  agency: string;
+  agency: string; // NIH, NSF, DOD...
   funding: number;
   awards: number;
 }
@@ -201,7 +373,7 @@ export interface TopicPerson {
 
 export interface TopicDetail {
   topic: TopicSummary;
-  funders: string[];
+  funders: string[]; // the funder areas that define this topic
   byCollege: CollegeStat[];
   trend: YearStat[];
   people: TopicPerson[];
@@ -211,148 +383,6 @@ export interface TopicDetail {
   related: TopicSummary[];
 }
 
-export interface AssistantRecord {
-  n: number; // the [n] the summary cites
-  takeaway: string;
-  project: Project;
-}
-
-export interface PersonRecord {
-  n: number;
-  id: string;
-  title: string;
-  kind: Kind;
-  role: string;
-}
-
-export interface PersonCounts {
-  grants: number;
-  trials: number;
-  publications: number;
-}
-
-export interface AssistantPerson {
-  name: string;
-  department: string;
-  college: CollegeId | null;
-  focus: string;
-  records: PersonRecord[]; // retrieved records they appear on
-  totals: PersonCounts; // every Temple record they appear on
-}
-
-export interface AssistantReply {
-  mode: "people" | "research" | "none";
-  summary: string;
-  records: AssistantRecord[];
-  people: AssistantPerson[];
-  followUps: string[];
-}
-
-// ---------- researchers ----------
-
-/** high: one source person ID; medium: name match within one source; low: combined across sources by name. */
-export type IdentityConfidence = "high" | "medium" | "low";
-
-export interface ResearcherCounts {
-  grants: number;
-  trials: number;
-  publications: number;
-}
-
-export interface ResearcherProject {
-  role: string; // as the source lists it
-  project: Project;
-}
-
-export interface ResearcherCollaborator {
-  researcherId: string;
-  name: string;
-  college: CollegeId | null;
-  department: string;
-  identityConfidence: IdentityConfidence;
-  sharedRecords: number;
-  crossCollege: boolean;
-  projectIds: string[]; // the shared records behind this link
-}
-
-export interface ResearcherAlias {
-  source: string;
-  name: string;
-  sourcePersonId: string | null;
-  evidence: "source-person-id" | "name-within-source" | "same-name-across-sources";
-  lastSeen: string | null;
-}
-
-export interface ResearcherSource {
-  label: string;
-  url: string;
-  records: number;
-  lastSeen: string | null;
-}
-
-export interface ResearcherFocus {
-  id: string; // topic id
-  name: string;
-  image: string | null;
-  records: number;
-}
-
-export interface ResearcherYear {
-  year: number; // start year
-  grants: number;
-  trials: number;
-  publications: number;
-}
-
-export interface ResearcherProfile {
-  id: string;
-  name: string;
-  initials: string;
-  college: CollegeId | null;
-  department: string;
-  verified: boolean;
-  identityConfidence: IdentityConfidence;
-  identityNote: string;
-  orcid?: string | null;
-  roles: string[]; // roles on records, never a job title
-  summary: string;
-  focus: ResearcherFocus[];
-  terms: string[];
-  counts: ResearcherCounts;
-  byYear: ResearcherYear[]; // oldest first
-  projects: ResearcherProject[];
-  collaborators: ResearcherCollaborator[];
-  aliases: ResearcherAlias[];
-  sources: ResearcherSource[];
-  about: string;
-}
-
-export interface CompatibilityMatch {
-  project: Project;
-  score: number;
-  reasons: string[];
-  sharedTopics: TopicRef[];
-}
-
-export interface ResearcherCompatibility {
-  researcherId: string;
-  researcherName: string;
-  isSynthetic: boolean;
-  matches: CompatibilityMatch[];
-}
-
-export interface DemoResearcherProfile {
-  id: string;
-  name: string;
-  initials: string;
-  college: CollegeId;
-  department: string;
-  isSynthetic: boolean;
-  bio: string;
-  interests: TopicRef[];
-  compatibility: ResearcherCompatibility;
-}
-
 // ---------- colleges ----------
 
 export interface CollegeSummary {
@@ -360,17 +390,17 @@ export interface CollegeSummary {
   name: string;
   awards: number;
   active: number;
-  funding: number; // grant money obligated FY2022 onward
+  funding: number; // grant money obligated FY2022 onward, same rule as Overview.byCollege
   trials: number;
   publications: number;
-  researchers: number;
+  researchers: number; // researchers whose profile is assigned to this college
 }
 
 export interface CollegeTopic {
   id: string;
   name: string;
   image: string | null;
-  records: number;
+  records: number; // grants + trials + publications in this college with this topic
   awards: number;
 }
 
@@ -384,12 +414,12 @@ export interface CollegeResearcher {
 
 export interface CollegePartner {
   college: CollegeId;
-  records: number;
+  records: number; // grants with investigators from both colleges
 }
 
 export interface CollegeDashboard {
   college: CollegeSummary;
-  fundingYears: number[]; // [first, last]; empty when there is no funding
+  fundingYears: number[]; // [first, last] fiscal year behind `funding` and `trend`; empty when there is none
   updatedAt: string | null;
   trend: YearStat[];
   topics: CollegeTopic[];
@@ -397,8 +427,8 @@ export interface CollegeDashboard {
   partners: CollegePartner[];
   crossCollege: Project[];
   recent: Project[];
-  sources: SourceSummary[];
-  unassignedRecords: number;
+  sources: SourceSummary[]; // records per source in this college
+  unassignedRecords: number; // records Temple-wide with no college; they appear on no college page
 }
 
 // ---------- people directory ----------
@@ -411,7 +441,7 @@ export interface PersonSummary {
   department: string;
   identityConfidence: IdentityConfidence;
   counts: ResearcherCounts;
-  topics: TopicRef[];
+  topics: TopicRef[]; // their two most frequent topics
 }
 
 export interface PeopleResponse {
@@ -421,13 +451,5 @@ export interface PeopleResponse {
   pageSize: number;
   sort: "records" | "name";
   results: PersonSummary[];
-  colleges: FacetValue[];
-}
-
-export interface PeopleParams {
-  q?: string;
-  page?: number;
-  colleges?: string[];
-  kind?: string;
-  sort?: string;
+  colleges: FacetValue[]; // people per college for the current query, ignoring the college filter
 }

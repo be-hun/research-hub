@@ -5,11 +5,11 @@ import Icon from "@/components/Icon";
 import CampusPhoto from "@/components/CampusPhoto";
 import Illustration from "@/components/Illustration";
 import { CollegeTag } from "@/components/Tags";
-import { getPeople, peopleQueryString } from "@/lib/api";
+import { getPeople, peopleQueryString, type PeopleParams } from "@/lib/api";
 import { COLLEGES } from "@/lib/colleges";
 import { count } from "@/lib/format";
 import { PHOTOS } from "@/lib/photos";
-import type { CollegeId, PeopleParams } from "@/lib/types";
+import type { CollegeId } from "@/lib/types";
 
 export const metadata: Metadata = { title: "People" };
 

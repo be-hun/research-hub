@@ -16,6 +16,8 @@ jobs:
         with:
           version: latest
       - run: uv sync --locked
+      - name: Generated contract is current (types.ts, docs/api.md)
+        run: uv run python -m app.contract --check
       - run: uv run pytest
 
   frontend:
