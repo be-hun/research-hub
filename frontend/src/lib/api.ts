@@ -1,12 +1,14 @@
 import type {
   CollegeDashboard,
   CollegeSummary,
+  DemoResearcherProfile,
   Overview,
   PeopleParams,
   PeopleResponse,
   Project,
   ProjectDetail,
   ResearcherProfile,
+  ResearcherCompatibility,
   SearchParams,
   SearchResponse,
   TopicDetail,
@@ -55,6 +57,9 @@ export const getProject = (id: string) => getOrNull<ProjectDetail>(`/api/project
 export const getProjects = (ids: string[]) =>
   ids.length ? get<Project[]>(`/api/projects?ids=${ids.map(encodeURIComponent).join(",")}`) : Promise.resolve([]);
 export const getResearcher = (id: string) => getOrNull<ResearcherProfile>(`/api/researchers/${encodeURIComponent(id)}`);
+export const getResearcherCompatibility = (id: string) =>
+  get<ResearcherCompatibility>(`/api/researchers/${encodeURIComponent(id)}/compatibility`);
+export const getDemoProfile = () => get<DemoResearcherProfile>("/api/demo-profile");
 export const getColleges = () => get<CollegeSummary[]>("/api/colleges");
 export const getCollege = (id: string) => getOrNull<CollegeDashboard>(`/api/colleges/${encodeURIComponent(id)}`);
 

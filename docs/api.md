@@ -78,6 +78,19 @@ Returns `ResearcherProfile`, or `404` when the id is unknown **or no stored reco
 
 `GET /api/researchers/:id/projects` and `GET /api/researchers/:id/collaborators` return just those lists.
 
+## `GET /api/researchers/:id/compatibility`
+
+Returns active compatibility matches for a researcher. Matches include only active grants and active clinical
+trials, exclude records already on the profile, and are scored deterministically from shared stored topics,
+subject terms, and college links. The score is a discovery aid, not a recommendation; no model call is made.
+Each match includes the complete source-backed `Project` and the reasons used for its score.
+
+## `GET /api/demo-profile`
+
+Returns the synthetic `Maya Patel` demo profile. Her interests are fictional, but compatible records are
+calculated from the current database. The response is explicitly marked `isSynthetic: true` and must not be
+presented as a real Temple researcher.
+
 ## `GET /api/colleges` and `GET /api/colleges/:id`
 
 `/api/colleges` lists every college (including ones with no records) as `CollegeSummary`, in a fixed order, never

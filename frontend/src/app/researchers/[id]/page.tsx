@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import CountBars from "@/components/charts/CountBars";
+import CompatibilitySection from "@/components/CompatibilitySection";
 import { ConfidenceChip } from "@/components/ConfidenceNotice";
 import Illustration from "@/components/Illustration";
 import ResearcherHeader from "@/components/ResearcherHeader";
@@ -10,7 +11,7 @@ import ResearcherProjects from "@/components/ResearcherProjects";
 import Section from "@/components/Section";
 import SectionTabs from "@/components/SectionTabs";
 import { CollegeTag } from "@/components/Tags";
-import { getResearcher } from "@/lib/api";
+import { getResearcher, getResearcherCompatibility } from "@/lib/api";
 import { COLLEGES, KIND_LABELS } from "@/lib/colleges";
 import { count, shortDate } from "@/lib/format";
 import type { Kind } from "@/lib/types";
@@ -23,7 +24,10 @@ const EVIDENCE: Record<string, string> = {
 const KINDS: Kind[] = ["award", "trial", "publication"];
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
-  const r = await getResearcher(params.id);
+  const [r, compatibility] = await Promise.all([
+    getResearcher(params.id),
+    getResearcherCompatibility(params.id),
+  ]);
   return { title: r?.name ?? "Researcher" };
 }
 
@@ -34,7 +38,10 @@ export default async function ResearcherPage({
   params: { id: string };
   searchParams: { kind?: string };
 }) {
-  const r = await getResearcher(params.id);
+  const [r, compatibility] = await Promise.all([
+    getResearcher(params.id),
+    getResearcherCompatibility(params.id),
+  ]);
   if (!r) notFound();
   const kind = KINDS.find((k) => k === searchParams.kind);
   const shown = kind ? r.projects.filter((p) => p.project.kind === kind) : r.projects;
@@ -107,6 +114,7 @@ export default async function ResearcherPage({
               )}
             </div>
           </Section>
+          {compatibility && <CompatibilitySection compatibility={compatibility} />}
 
           <Section id="records" title="Research records" subtitle="Grouped by start year, newest first. Each opens the record and its original source.">
             <div className="flex flex-wrap gap-2 mb-5" role="group" aria-label="Filter records by type">

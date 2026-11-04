@@ -6,7 +6,7 @@ from time import monotonic
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import ai, assistant, config, dashboards, explore, models, queries, researchers
+from app import ai, assistant, compatibility, config, dashboards, explore, models, queries, researchers
 from app.colleges import COLLEGE_NAMES
 from app.db import connect, init_schema
 
@@ -126,6 +126,17 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
         if researchers.projects(db(request), researcher_id) is None:
             raise HTTPException(404, "Researcher not found")
         return researchers.collaborators(db(request), researcher_id)
+
+    @app.get("/api/researchers/{researcher_id}/compatibility")
+    def researcher_compatibility(request: Request, researcher_id: str) -> models.ResearcherCompatibility:
+        result = compatibility.for_researcher(db(request), researcher_id)
+        if not result:
+            raise HTTPException(404, "Researcher not found")
+        return result
+
+    @app.get("/api/demo-profile")
+    def demo_profile(request: Request) -> models.DemoResearcherProfile:
+        return compatibility.demo_profile(db(request))
 
     @app.get("/api/colleges")
     def college_list(request: Request) -> list[models.CollegeSummary]:

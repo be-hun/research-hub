@@ -178,6 +178,32 @@ class ResearcherProfile(BaseModel):
     about: str
 
 
+class CompatibilityMatch(BaseModel):
+    project: Project
+    score: int
+    reasons: list[str]
+    sharedTopics: list[TopicRef]
+
+
+class ResearcherCompatibility(BaseModel):
+    researcherId: str
+    researcherName: str
+    isSynthetic: bool = False
+    matches: list[CompatibilityMatch]
+
+
+class DemoResearcherProfile(BaseModel):
+    id: str
+    name: str
+    initials: str
+    college: CollegeId
+    department: str
+    isSynthetic: bool = True
+    bio: str
+    interests: list[TopicRef]
+    compatibility: ResearcherCompatibility
+
+
 class CollaboratorMatch(BaseModel):
     researcherId: str
     name: str

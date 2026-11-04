@@ -327,6 +327,32 @@ export interface ResearcherProfile {
   about: string;
 }
 
+export interface CompatibilityMatch {
+  project: Project;
+  score: number;
+  reasons: string[];
+  sharedTopics: TopicRef[];
+}
+
+export interface ResearcherCompatibility {
+  researcherId: string;
+  researcherName: string;
+  isSynthetic: boolean;
+  matches: CompatibilityMatch[];
+}
+
+export interface DemoResearcherProfile {
+  id: string;
+  name: string;
+  initials: string;
+  college: CollegeId;
+  department: string;
+  isSynthetic: boolean;
+  bio: string;
+  interests: TopicRef[];
+  compatibility: ResearcherCompatibility;
+}
+
 // ---------- colleges ----------
 
 export interface CollegeSummary {
