@@ -6,7 +6,9 @@ carry over to it, so document fields here. A test fails when types.ts is stale.
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.topics import BY_ID
 
 CollegeId = Literal["medicine", "public-health", "science-tech", "engineering", "business", "media", "education",
                     "liberal-arts"]
@@ -206,6 +208,7 @@ class DemoResearcherProfile(BaseModel):
     isSynthetic: bool = True
     bio: str
     interests: list[TopicRef]
+    terms: list[str]
     compatibility: ResearcherCompatibility
 
 
@@ -213,12 +216,61 @@ class CollaboratorMatch(BaseModel):
     researcherId: str
     name: str
     initials: str
-    college: CollegeId
+    college: CollegeId | None
     title: str
     score: int
     reasons: list[str]
     citations: list[str]
     sharedTopics: list[str]
+
+
+class ProfileInput(BaseModel):
+    college: CollegeId | None = None
+    topics: list[str] = Field(default_factory=list, max_length=8)
+    terms: list[str] = Field(default_factory=list, max_length=12)
+
+    @field_validator("topics")
+    @classmethod
+    def known_topics(cls, value: list[str]) -> list[str]:
+        unknown = [topic for topic in value if topic not in BY_ID]
+        if unknown:
+            raise ValueError(f"unknown topic id: {unknown[0]}")
+        return value
+
+    @field_validator("terms")
+    @classmethod
+    def bounded_terms(cls, value: list[str]) -> list[str]:
+        if any(not 1 <= len(term) <= 40 for term in value):
+            raise ValueError("each term must be between 1 and 40 characters")
+        return value
+
+
+class ForYou(BaseModel):
+    trials: list[CompatibilityMatch]
+    grants: list[CompatibilityMatch]
+    collaborators: list[CollaboratorMatch]
+
+
+class ResearcherMatch(BaseModel):
+    score: int
+    reasons: list[str]
+    sharedTopics: list[TopicRef]
+    records: list[Project]
+
+
+class ProjectMatchRequest(BaseModel):
+    profile: ProfileInput
+    ids: list[str] = Field(max_length=50)
+
+
+class ProjectMatch(BaseModel):
+    id: str
+    score: int
+    reasons: list[str]
+
+
+class ProjectMatches(BaseModel):
+    matches: list[ProjectMatch]
 
 
 class ChatMessage(BaseModel):
@@ -228,6 +280,7 @@ class ChatMessage(BaseModel):
 
 class AssistantRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=8)
+    profile: ProfileInput | None = None
 
     @model_validator(mode="after")
     def ends_with_user(self):

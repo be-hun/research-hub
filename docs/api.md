@@ -30,6 +30,9 @@ when the generated files are stale. This page adds what code can't say: behaviou
 | `GET` | `/api/researchers/{researcher_id}/collaborators` | — | `ResearcherCollaborator[]` |
 | `GET` | `/api/researchers/{researcher_id}/compatibility` | — | `ResearcherCompatibility` |
 | `GET` | `/api/demo-profile` | — | `DemoResearcherProfile` |
+| `POST` | `/api/for-you` | body: `ProfileInput` | `ForYou` |
+| `POST` | `/api/match/researcher/{researcher_id}` | body: `ProfileInput` | `ResearcherMatch` |
+| `POST` | `/api/match/projects` | body: `ProjectMatchRequest` | `ProjectMatches` |
 | `GET` | `/api/colleges` | — | `CollegeSummary[]` |
 | `GET` | `/api/colleges/{college_id}` | — | `CollegeDashboard` |
 | `GET` | `/api/colleges/{college_id}/projects` | `page`, `kind` (repeatable) | `SearchResponse` |
@@ -128,6 +131,16 @@ Returns the synthetic `Maya Patel` demo profile. Her interests are fictional, bu
 calculated from the current database. The response is explicitly marked `isSynthetic: true` and must not be
 presented as a real Temple researcher.
 
+## `POST /api/for-you` and matching endpoints
+
+`ProfileInput` contains an optional college, up to 8 known topic ids and up to 12 terms (each 1–40 characters).
+`/api/for-you` returns up to six recruiting trials, active grants and deterministic collaborator matches. Scores,
+reasons and citations come from stored project topics, colleges, terms and team records; no model is called.
+
+`POST /api/match/researcher/:id` returns up to six of that researcher's records that share profile topics or
+terms, or 404 for an unknown researcher. `POST /api/match/projects` accepts up to 50 project ids and returns
+only positive matches; unknown ids are ignored.
+
 ## `GET /api/colleges` and `GET /api/colleges/:id`
 
 `/api/colleges` lists every college (including ones with no records) as `CollegeSummary`, in a fixed order, never
@@ -148,10 +161,12 @@ for readiness checks.
 
 ## `POST /api/assistant`
 
-Body: `AssistantRequest`, i.e. `{ messages: { role: "user" | "assistant", text: string }[] }` (1–8 messages, each up to
-4000 characters, last one from the user). Returns `AssistantReply`: `{ mode, summary, records, people, followUps }`.
+Body: `AssistantRequest`, i.e. `{ messages: { role: "user" | "assistant", text: string }[], profile?: ProfileInput }`
+(1–8 messages, each up to 4000 characters, last one from the user). Returns `AssistantReply`:
+`{ mode, summary, records, people, followUps }`.
 
-- The backend searches stored records first. If nothing matches, it returns `mode: "none"` without calling the model.
+- The backend searches stored records first, including the optional profile's topics and terms. If nothing matches,
+  it returns `mode: "none"` without calling the model.
 - The model sees only the retrieved records. It answers in `mode: "research"` (`records`: the cited records, each a
   full `Project` from the database plus a one-line `takeaway`) or `mode: "people"` (`people`: researchers on those
   records, with their records and totals read from the database plus a short `focus`). The list for the other mode
