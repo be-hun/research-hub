@@ -7,8 +7,13 @@ Temple ResearchConnect: a research discovery site that shows the research happen
 | Area | State |
 | --- | --- |
 | Frontend (`frontend/`) | v4 redesign: Home, Explore, Search, Topics, Award, Ask, About. All real data. |
-| Backend (`backend/`) | Five sources (NIH, NSF, USAspending, ClinicalTrials.gov, OpenAlex), overview, topics, search with facets, grounded assistant (Gemini). |
+| Backend (`backend/`) | Five sources (NIH, NSF, USAspending, ClinicalTrials.gov, OpenAlex), overview, topics, search with facets, grounded assistant (Anthropic `claude-sonnet-5-5` by default; Gemini optional). |
 | API contract | [docs/api.md](docs/api.md). Types: `frontend/src/lib/types.ts`. |
+
+## Contributing (people, Claude Code and Copilot)
+
+Read [AGENTS.md](AGENTS.md) first. Every change goes on its own branch (`claude/*`, `copilot/*` or `<name>/*`) in its own
+worktree, and comes in through a PR into `backend-foundation`.
 
 ## Run the frontend
 
@@ -95,7 +100,7 @@ The next launch increments are:
 - Never commit `backend/.env`; copy `.env.example` and set credentials in the process environment or a root-owned secret file.
 - Rotate any credential that has ever appeared in Git history. Removing the file does not revoke the credential.
 - Put the site behind HTTPS and expose `/api/health` through the reverse proxy.
-- The assistant is limited to five requests per client per minute and eight conversation messages per request. Set `AI_TIMEOUT_SECONDS` for the provider timeout.
+- The assistant has no per-client rate limit and accepts up to eight conversation messages per request; add shared rate limiting before a public launch. Set `AI_TIMEOUT_SECONDS` for the provider timeout.
 - `ingest.run` creates a consistent backup in `backend/data/backups/` before every import. Keep backups outside the deploy volume in production and retain the prior database until the new run is verified. Use `--no-backup` only for a deliberate local operation.
 - Run `uv run pytest` and `npm run build` before deployment. CI runs both on pushes and pull requests.
 
