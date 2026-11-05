@@ -4,10 +4,10 @@ Totals follow the same rules as the Explore page (`explore.overview().byCollege`
 funding is money obligated from TREND_START onward. A test holds the two in step.
 """
 
-import sqlite3
 
 from app import models
 from app.colleges import COLLEGE_NAMES
+from app.db import Connection
 from app.explore import TREND_START, last_updated, source_summaries, trend_from_rows
 from app.queries import PARENT_ONLY, _projects
 from app.topics import BY_ID as TOPICS_BY_ID
@@ -20,15 +20,15 @@ FUNDING = """LEFT JOIN (SELECT project_id, SUM(award_amount) AS amount FROM awar
                         WHERE fiscal_year >= ? GROUP BY project_id) f ON f.project_id = p.id"""
 
 
-def _summaries(conn: sqlite3.Connection, college: str | None = None) -> list[models.CollegeSummary]:
+def _summaries(conn: Connection, college: str | None = None) -> list[models.CollegeSummary]:
     where, params = ("AND c.college = ?", [college]) if college else ("", [])
     stats = {r["college"]: r for r in conn.execute(f"""
         SELECT c.college,
-               SUM(p.kind = 'award') AS awards,
-               SUM(p.kind = 'award' AND p.is_active = 1) AS active,
+               COUNT(*) FILTER (WHERE p.kind = 'award') AS awards,
+               COUNT(*) FILTER (WHERE p.kind = 'award' AND p.is_active = 1) AS active,
                SUM(CASE WHEN p.kind = 'award' THEN COALESCE(f.amount, 0) ELSE 0 END) AS funding,
-               SUM(p.kind = 'trial') AS trials,
-               SUM(p.kind = 'publication') AS publications
+               COUNT(*) FILTER (WHERE p.kind = 'trial') AS trials,
+               COUNT(*) FILTER (WHERE p.kind = 'publication') AS publications
         FROM project_colleges c JOIN projects p ON p.id = c.project_id {FUNDING}
         WHERE {PARENT_ONLY} {where}
         GROUP BY c.college
@@ -48,12 +48,12 @@ def _summaries(conn: sqlite3.Connection, college: str | None = None) -> list[mod
     return out
 
 
-def colleges(conn: sqlite3.Connection) -> list[models.CollegeSummary]:
+def colleges(conn: Connection) -> list[models.CollegeSummary]:
     """Every college, including ones with no records, in the fixed display order (never ranked by money)."""
     return _summaries(conn)
 
 
-def dashboard(conn: sqlite3.Connection, college: str) -> models.CollegeDashboard | None:
+def dashboard(conn: Connection, college: str) -> models.CollegeDashboard | None:
     if college not in COLLEGE_NAMES:
         return None
     summary = _summaries(conn, college)[0]
@@ -71,7 +71,7 @@ def dashboard(conn: sqlite3.Connection, college: str) -> models.CollegeDashboard
                             image=TOPICS_BY_ID[r["topic_id"]].image, records=r["records"],
                             awards=r["awards"])
         for r in conn.execute(f"""
-            SELECT pt.topic_id, COUNT(*) AS records, SUM(p.kind = 'award') AS awards
+            SELECT pt.topic_id, COUNT(*) AS records, COUNT(*) FILTER (WHERE p.kind = 'award') AS awards
             FROM project_topics pt JOIN projects p ON p.id = pt.project_id
             JOIN project_colleges c ON c.project_id = p.id AND c.college = ?
             WHERE {PARENT_ONLY} GROUP BY pt.topic_id ORDER BY records DESC, pt.topic_id

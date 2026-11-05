@@ -1,9 +1,9 @@
 """Aggregates for the Explore and Topic pages. Every figure is a count or sum over stored records."""
 
-import sqlite3
 from collections import Counter, defaultdict
 
 from app import models
+from app.db import Connection, Row
 from app.queries import PARENT_ONLY, _marks, _projects
 from app.topics import BY_ID, TOPICS
 from ingest.funders import CATEGORIES as FUNDING_TYPES
@@ -23,7 +23,7 @@ SOURCE_INFO = {
 }
 
 
-def _ids_by_kind(conn: sqlite3.Connection, ids: list[str] | None = None) -> dict[str, list[str]]:
+def _ids_by_kind(conn: Connection, ids: list[str] | None = None) -> dict[str, list[str]]:
     out: dict[str, list[str]] = defaultdict(list)
     sql = f"SELECT p.id, p.kind FROM projects p WHERE {PARENT_ONLY}"
     for r in conn.execute(sql):
@@ -34,28 +34,28 @@ def _ids_by_kind(conn: sqlite3.Connection, ids: list[str] | None = None) -> dict
     return out
 
 
-def _funding(conn: sqlite3.Connection) -> dict[str, int]:
+def _funding(conn: Connection) -> dict[str, int]:
     """Money obligated per grant from TREND_START onward."""
     return {r["project_id"]: r["amount"] or 0 for r in conn.execute(
         "SELECT project_id, SUM(award_amount) AS amount FROM award_years WHERE fiscal_year >= ? GROUP BY project_id",
         (TREND_START,))}
 
 
-def _topics_by_project(conn: sqlite3.Connection) -> dict[str, set[str]]:
+def _topics_by_project(conn: Connection) -> dict[str, set[str]]:
     out: dict[str, set[str]] = defaultdict(set)
     for r in conn.execute("SELECT project_id, topic_id FROM project_topics"):
         out[r["project_id"]].add(r["topic_id"])
     return out
 
 
-def _rows(conn: sqlite3.Connection, ids: list[str], order: str, limit: int) -> list[sqlite3.Row]:
+def _rows(conn: Connection, ids: list[str], order: str, limit: int) -> list[Row]:
     if not ids:
         return []
     return conn.execute(f"SELECT * FROM projects WHERE id IN ({_marks(ids)}) ORDER BY {order} LIMIT ?",
                         ids + [limit]).fetchall()
 
 
-def _college_stats(conn: sqlite3.Connection, kinds: dict[str, list[str]], funding: dict[str, int]) -> list[models.CollegeStat]:
+def _college_stats(conn: Connection, kinds: dict[str, list[str]], funding: dict[str, int]) -> list[models.CollegeStat]:
     ids = [i for v in kinds.values() for i in v]
     if not ids:
         return []
@@ -80,7 +80,7 @@ def _college_stats(conn: sqlite3.Connection, kinds: dict[str, list[str]], fundin
     return [models.CollegeStat(college=c, **s) for c, s in ranked]
 
 
-def _trend(conn: sqlite3.Connection, ids: list[str]) -> list[models.YearStat]:
+def _trend(conn: Connection, ids: list[str]) -> list[models.YearStat]:
     if not ids:
         return []
     rows = conn.execute(f"""
@@ -92,7 +92,7 @@ def _trend(conn: sqlite3.Connection, ids: list[str]) -> list[models.YearStat]:
     return trend_from_rows(rows)
 
 
-def trend_from_rows(rows: list[sqlite3.Row]) -> list[models.YearStat]:
+def trend_from_rows(rows: list[Row]) -> list[models.YearStat]:
     """Rows of (fy, agency, amount, awards) to one YearStat per fiscal year."""
     years: dict[int, dict] = defaultdict(lambda: {"nih": 0, "nsf": 0, "other": 0, "awards": 0})
     for r in rows:
@@ -125,7 +125,7 @@ def _topic_summaries(conn, kinds: dict[str, list[str]], funding, by_project) -> 
     )
 
 
-def _funding_types(conn: sqlite3.Connection, kinds: dict[str, list[str]]) -> list[models.FundingTypeStat]:
+def _funding_types(conn: Connection, kinds: dict[str, list[str]]) -> list[models.FundingTypeStat]:
     kind_of = {i: k for k, v in kinds.items() for i in v}
     counts: dict[str, Counter] = defaultdict(Counter)
     for r in conn.execute("SELECT DISTINCT project_id, category FROM project_funders"):
@@ -136,7 +136,7 @@ def _funding_types(conn: sqlite3.Connection, kinds: dict[str, list[str]]) -> lis
     return sorted(stats, key=lambda s: s.awards + s.trials + s.publications, reverse=True)
 
 
-def _federal_by_agency(conn: sqlite3.Connection, award_ids: list[str], funding: dict[str, int]) -> list[models.AgencyStat]:
+def _federal_by_agency(conn: Connection, award_ids: list[str], funding: dict[str, int]) -> list[models.AgencyStat]:
     agency_of = {r["id"]: r["agency"] for r in conn.execute(
         f"SELECT id, agency FROM projects WHERE id IN ({_marks(award_ids)})", award_ids)} if award_ids else {}
     totals: dict[str, dict] = defaultdict(lambda: {"funding": 0, "awards": 0})
@@ -147,18 +147,18 @@ def _federal_by_agency(conn: sqlite3.Connection, award_ids: list[str], funding: 
     return sorted((models.AgencyStat(agency=a, **t) for a, t in totals.items()), key=lambda s: s.funding, reverse=True)
 
 
-def _cross_college_ids(conn: sqlite3.Connection, limit: int) -> list[str]:
+def _cross_college_ids(conn: Connection, limit: int) -> list[str]:
     """Grants whose investigators belong to more than one college."""
     return [r["project_id"] for r in conn.execute(f"""
         SELECT t.project_id FROM project_team t JOIN researchers r ON r.id = t.researcher_id
         JOIN projects p ON p.id = t.project_id
         WHERE r.college IS NOT NULL AND p.kind = 'award' AND {PARENT_ONLY}
         GROUP BY t.project_id HAVING COUNT(DISTINCT r.college) > 1
-        ORDER BY MAX(p.is_active) DESC, MAX(p.latest_fy) DESC LIMIT ?
+        ORDER BY MAX(p.is_active) DESC, MAX(p.latest_fy) DESC, t.project_id LIMIT ?
     """, (limit,))]
 
 
-def source_summaries(conn: sqlite3.Connection, counts: dict[str, int]) -> list[models.SourceSummary]:
+def source_summaries(conn: Connection, counts: dict[str, int]) -> list[models.SourceSummary]:
     """One SourceSummary per source with records, given record counts per source id."""
     out = []
     for source, (label, url, kind_label, coverage) in SOURCE_INFO.items():
@@ -172,14 +172,14 @@ def source_summaries(conn: sqlite3.Connection, counts: dict[str, int]) -> list[m
     return out
 
 
-def last_updated(conn: sqlite3.Connection) -> str | None:
+def last_updated(conn: Connection) -> str | None:
     finished = conn.execute(
         "SELECT finished_at FROM ingest_runs WHERE error IS NULL AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1"
     ).fetchone()
     return finished["finished_at"][:10] if finished else None
 
 
-def overview(conn: sqlite3.Connection) -> models.Overview:
+def overview(conn: Connection) -> models.Overview:
     kinds = _ids_by_kind(conn)
     funding = _funding(conn)
     by_project = _topics_by_project(conn)
@@ -188,7 +188,7 @@ def overview(conn: sqlite3.Connection) -> models.Overview:
     counts = {r["source"]: r["n"] for r in conn.execute(
         f"SELECT p.source, COUNT(*) AS n FROM projects p WHERE {PARENT_ONLY} GROUP BY p.source")}
     cross = _cross_college_ids(conn, 6)
-    cross_rows = _rows(conn, cross, "latest_fy DESC", 6)
+    cross_rows = _rows(conn, cross, "latest_fy DESC, id", 6)
     cross_rows.sort(key=lambda r: cross.index(r["id"]))
 
     return models.Overview(
@@ -211,18 +211,18 @@ def overview(conn: sqlite3.Connection) -> models.Overview:
         topics=_topic_summaries(conn, kinds, funding, by_project),
         recent=_projects(conn, conn.execute(f"""
             SELECT p.* FROM projects p WHERE p.kind = 'award' AND p.is_active = 1 AND {PARENT_ONLY}
-            ORDER BY p.start_date DESC, p.latest_amount DESC LIMIT 6""").fetchall()),
+            ORDER BY p.start_date DESC NULLS LAST, p.latest_amount DESC NULLS LAST, p.id LIMIT 6""").fetchall()),
         recruiting=_projects(conn, conn.execute(f"""
             SELECT * FROM projects WHERE kind = 'trial' AND status_label IN ({_marks(RECRUITING)})
-            ORDER BY status_label = 'Recruiting' DESC, start_date DESC LIMIT 6""", RECRUITING).fetchall()),
+            ORDER BY status_label = 'Recruiting' DESC, start_date DESC NULLS LAST, id LIMIT 6""", RECRUITING).fetchall()),
         publications=_projects(conn, conn.execute("""
             SELECT * FROM projects WHERE kind = 'publication' AND length(abstract) > 0
-            ORDER BY start_date DESC LIMIT 6""").fetchall()),
+            ORDER BY start_date DESC NULLS LAST, id LIMIT 6""").fetchall()),
         crossCollege=_projects(conn, cross_rows),
     )
 
 
-def topic_detail(conn: sqlite3.Connection, topic_id: str) -> models.TopicDetail | None:
+def topic_detail(conn: Connection, topic_id: str) -> models.TopicDetail | None:
     topic = BY_ID.get(topic_id)
     if not topic:
         return None
@@ -270,8 +270,8 @@ def topic_detail(conn: sqlite3.Connection, topic_id: str) -> models.TopicDetail 
         byCollege=_college_stats(conn, kinds, funding),
         trend=_trend(conn, kinds["award"]),
         people=people,
-        projects=_projects(conn, _rows(conn, kinds["award"], "is_active DESC, latest_amount DESC", 10)),
-        trials=_projects(conn, _rows(conn, kinds["trial"], "is_active DESC, start_date DESC", 6)),
-        publications=_projects(conn, _rows(conn, kinds["publication"], "start_date DESC", 6)),
+        projects=_projects(conn, _rows(conn, kinds["award"], "is_active DESC, latest_amount DESC NULLS LAST, id", 10)),
+        trials=_projects(conn, _rows(conn, kinds["trial"], "is_active DESC, start_date DESC NULLS LAST, id", 6)),
+        publications=_projects(conn, _rows(conn, kinds["publication"], "start_date DESC NULLS LAST, id", 6)),
         related=related,
     )

@@ -10,7 +10,7 @@ from tests.test_nih_reporter import record
 
 @pytest.fixture
 def client():
-    app = create_app(":memory:")
+    app = create_app()
     load(app.state.db, merge([normalize([record()])]))
     return TestClient(app)
 

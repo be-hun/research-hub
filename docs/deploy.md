@@ -8,8 +8,9 @@ What lives only on the server, and is never committed:
 | Item | Where | Rebuilt by |
 | --- | --- | --- |
 | Secrets (`ANTHROPIC_API_KEY`, etc.) | `backend/.env` or the service environment | set by hand from `backend/.env.example` |
-| Database | `backend/data/hub.db` | `uv run python -m ingest.run` |
-| Backups | outside the deploy folder | `uv run python -m app.backup` |
+| Database connection | `DATABASE_URL` in `backend/.env` (Supabase session pooler URI) | set by hand |
+| Data in Supabase | Supabase project | `uv run python -m ingest.run` |
+| Backups | Supabase daily backups, plus `pg_dump` files outside the deploy folder | `uv run python -m app.backup` |
 
 ## The server
 
@@ -33,7 +34,7 @@ git checkout --detach origin/main # or a specific commit on main
 
 cd backend
 uv sync --locked
-uv run python -m app.backup       # keep the previous database until the new deploy is verified
+uv run python -m app.backup       # pg_dump of the current data, kept until the new deploy is verified
 cd ../frontend
 npm ci && npm run build
 
@@ -54,7 +55,14 @@ Then open the Home page, a project page, and `/profile` (the synthetic demo prof
 ## Roll back
 
 Check out the previous commit on `main`, repeat the deploy steps, and restore the backup taken before the deploy if
-the database changed.
+the database changed:
+
+```bash
+pg_restore --clean --if-exists --no-owner -d "$DATABASE_URL" data/backups/hub-<stamp>.dump
+```
+
+The server needs the PostgreSQL 17 client tools (`pg_dump`, `pg_restore`) for this; Supabase's own daily backups
+(Dashboard > Database > Backups) are the fallback.
 
 ## Bringing a drifted server back in line
 

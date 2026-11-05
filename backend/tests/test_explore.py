@@ -11,7 +11,7 @@ from tests.test_nsf_awards import award
 
 @pytest.fixture
 def client():
-    app = create_app(":memory:")
+    app = create_app()
     nih = nih_reporter.normalize([
         record(),  # NIA, medicine, active, FY2025 $500K
         record(appl_id=2, fiscal_year=2024, award_amount=400000),
