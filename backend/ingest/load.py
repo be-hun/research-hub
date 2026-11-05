@@ -161,7 +161,8 @@ def finalize(data: dict) -> dict:
     weak: dict[str, Counter] = defaultdict(Counter)
     for pid, rids in team_by_project.items():
         for rid in rids:
-            (strong if pid in strong_projects else weak)[rid].update(project_colleges.get(pid, ()))
+            # sorted: a set's order changes per process, and Counter breaks vote ties by insertion order
+            (strong if pid in strong_projects else weak)[rid].update(sorted(project_colleges.get(pid, ())))
     for r in data["researchers"]:
         if r.get("_affiliation_college"):
             strong[r["id"]][r["_affiliation_college"]] += 2

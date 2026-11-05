@@ -57,3 +57,23 @@ def test_search_ranks_records_with_every_word_first_and_ignores_accents():
     results = queries.search(conn, "machine learning").results
     assert [r.id for r in results] == ["nih-R01AG000002", "nih-R01AG000001"]
     assert [r.id for r in queries.search(conn, "pratico").results] == ["nih-R01AG000002"]
+
+
+def test_college_vote_ties_do_not_depend_on_the_process():
+    """A researcher on one record listed under two colleges: the tie must resolve the same way in every process
+    (it used to follow set order, which Python randomizes per process)."""
+    import subprocess
+    import sys
+
+    script = """
+from ingest.load import finalize
+data = {"projects": [{"id": "p1", "source": "openalex", "department": None, "title": "x", "terms": ""}],
+        "project_colleges": [{"project_id": "p1", "college": c} for c in ("science-tech", "engineering", "medicine")],
+        "project_team": [{"project_id": "p1", "researcher_id": "r1"}],
+        "researchers": [{"id": "r1", "college": None}], "project_areas": []}
+print(finalize(data)["researchers"][0]["college"])
+"""
+    results = {subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=True,
+                              env={"PYTHONHASHSEED": str(seed), "PYTHONPATH": "."}).stdout.strip()
+               for seed in range(8)}
+    assert results == {"engineering"}
