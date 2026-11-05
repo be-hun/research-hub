@@ -9,7 +9,7 @@ import { CollegeTag, KindTag, SourceTag, StatusChip } from "@/components/Tags";
 import { getProject, getProjects } from "@/lib/api";
 import { KIND_LABELS } from "@/lib/colleges";
 import { isDemoSignedIn } from "@/lib/demo";
-import { money, shortDate } from "@/lib/format";
+import { isStaleTrialStatus, money, shortDate } from "@/lib/format";
 import { FUNDER_SERIES } from "@/lib/series";
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
@@ -87,7 +87,11 @@ export default async function ProjectPage({ params }: { params: { id: string } }
             <dt className="text-tiny text-ink-3 mb-1">{f.label}</dt>
             <dd className="text-small font-medium break-words">
               {f.label === "Status" ? (
-                <StatusChip label={f.value} active={project.active} />
+                <StatusChip
+                  label={f.value}
+                  active={project.active}
+                  stale={project.kind === "trial" && isStaleTrialStatus(f.value, project.endYear)}
+                />
               ) : f.href ? (
                 <a href={f.href} target="_blank" rel="noreferrer" className="num text-cherry underline underline-offset-2">
                   {f.value} ↗

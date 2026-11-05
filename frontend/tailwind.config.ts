@@ -18,6 +18,11 @@ const config: Config = {
         "cherry-tint": "#F8E9EC",
         "active-ink": "#1B6B44",
         "active-bg": "#E5F3EB",
+        "soon-ink": "#8A4B00",
+        "soon-bg": "#FCF0DC",
+        "running-ink": "#1F4E8C",
+        "running-bg": "#E6EEF8",
+        "stopped-ink": "#8C3B3B",
       },
       fontFamily: {
         serif: ["var(--font-serif)", "Georgia", "serif"],

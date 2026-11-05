@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Fragment, useState } from "react";
 import { API_URL } from "@/lib/api";
 import { KIND_LABELS } from "@/lib/colleges";
-import { count } from "@/lib/format";
+import { count, yearRange } from "@/lib/format";
 import type { AssistantPerson, AssistantRecord, AssistantReply, AssistantRequest, ProfileInput, Project } from "@/lib/types";
 import Icon from "./Icon";
 import { CollegeTag, KindTag, StatusChip } from "./Tags";
@@ -51,7 +51,7 @@ function Summary({ text }: { text: string }) {
 }
 
 function facts(p: Project): string[] {
-  const years = p.kind === "publication" ? String(p.startYear) : `${p.startYear}–${p.endYear}`;
+  const years = p.kind === "publication" ? String(p.startYear) : yearRange(p.startYear, p.endYear);
   if (p.kind === "award") return [years, p.agency, p.pi.name].filter(Boolean);
   if (p.kind === "trial") return [years, `Sponsor: ${p.funder}`];
   return [years, p.agency, p.fundingTypes.join(", ")].filter(Boolean);

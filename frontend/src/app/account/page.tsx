@@ -79,7 +79,7 @@ export default async function AccountPage() {
       </Section>
 
       <Section id="for-you" title="For you" subtitle="Active research and people that share your interests.">
-        <ForYou data={forYou} />
+        <ForYou data={forYou} terms={input.terms} college={input.college} />
       </Section>
 
       <Section title="Saved" subtitle="Kept in this browser for the demo.">
