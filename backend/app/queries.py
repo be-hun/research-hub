@@ -1,12 +1,12 @@
 """Read queries. Every value returned comes from a stored record; nothing is generated."""
 
 import re
-import sqlite3
 from collections import Counter, defaultdict
 from datetime import date
 
 from app import models
 from app.colleges import COLLEGE_NAMES
+from app.db import Connection, Row
 from app.topics import BY_ID as TOPICS_BY_ID
 from ingest.funders import CATEGORIES as FUNDING_TYPES
 
@@ -27,6 +27,12 @@ STOPWORDS = {
     "projects", "project", "temple",
 }
 FIELD_LABELS = {"title": "title", "abstract": "abstract", "terms": "subject terms", "people": "investigators"}
+# Full-text search takes two parameters: any of the words (what matches) and all of them (what ranks first).
+# Then ts_rank, higher is better, with weights per schema.sql and normalization 1 (divide by log length) so a long
+# abstract that repeats a word doesn't outrank a title about it. Checked against the SQLite bm25 top 10.
+FTS_FROM = ("projects_fts f JOIN projects p ON p.id = f.project_id "
+            "CROSS JOIN to_tsquery('english', ?) AS query CROSS JOIN to_tsquery('english', ?) AS all_words")
+FTS_RANK = "f.document @@ all_words DESC, ts_rank('{0.1, 0.2, 0.3, 1.0}', f.document, query, 1) DESC"
 
 
 def _marks(values: list) -> str:
@@ -35,17 +41,17 @@ def _marks(values: list) -> str:
 
 # ---------- shared ----------
 
-def _by_project(conn: sqlite3.Connection, sql: str, ids: list[str]) -> dict[str, list[sqlite3.Row]]:
-    out: dict[str, list[sqlite3.Row]] = defaultdict(list)
+def _by_project(conn: Connection, sql: str, ids: list[str]) -> dict[str, list[Row]]:
+    out: dict[str, list[Row]] = defaultdict(list)
     if ids:
         for r in conn.execute(sql.format(marks=_marks(ids)), ids):
             out[r["project_id"]].append(r)
     return out
 
 
-def _projects(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[models.Project]:
+def _projects(conn: Connection, rows: list[Row]) -> list[models.Project]:
     ids = [r["id"] for r in rows]
-    colleges = _by_project(conn, "SELECT project_id, college FROM project_colleges WHERE project_id IN ({marks})", ids)
+    colleges = _by_project(conn, "SELECT project_id, college FROM project_colleges WHERE project_id IN ({marks}) ORDER BY college", ids)
     funders = _by_project(conn, """SELECT project_id, category FROM project_funders
                                    WHERE project_id IN ({marks}) ORDER BY position""", ids)
     leads = _by_project(conn, """SELECT project_id, name FROM project_team
@@ -90,19 +96,19 @@ def _initials(name: str) -> str:
     return (parts[0][0] + parts[-1][0]).upper() if parts else ""
 
 
-def topic_ids(conn: sqlite3.Connection, project_id: str) -> list[str]:
+def topic_ids(conn: Connection, project_id: str) -> list[str]:
     return [r["topic_id"] for r in conn.execute(
         "SELECT topic_id FROM project_topics WHERE project_id = ? ORDER BY method, topic_id", (project_id,))]
 
 
 # ---------- projects ----------
 
-def featured(conn: sqlite3.Connection, limit: int = 3) -> list[models.Project]:
+def featured(conn: Connection, limit: int = 3) -> list[models.Project]:
     """Active grants, largest first, one per college and spread across sources so the home page shows breadth."""
     rows = conn.execute(f"""
         SELECT p.*, c.college FROM projects p JOIN project_colleges c ON c.project_id = p.id
         WHERE p.kind = 'award' AND p.is_active = 1 AND length(p.abstract) > 0 AND {PARENT_ONLY}
-        ORDER BY p.latest_amount DESC
+        ORDER BY p.latest_amount DESC NULLS LAST, p.id
     """).fetchall()
     picked, colleges, sources = [], set(), set()
     for new_source_only in (True, False):
@@ -117,7 +123,7 @@ def featured(conn: sqlite3.Connection, limit: int = 3) -> list[models.Project]:
     return _projects(conn, picked)
 
 
-def projects_by_ids(conn: sqlite3.Connection, ids: list[str]) -> list[models.Project]:
+def projects_by_ids(conn: Connection, ids: list[str]) -> list[models.Project]:
     if not ids:
         return []
     rows = conn.execute(f"SELECT * FROM projects WHERE id IN ({_marks(ids)})", ids).fetchall()
@@ -125,7 +131,7 @@ def projects_by_ids(conn: sqlite3.Connection, ids: list[str]) -> list[models.Pro
     return _projects(conn, [by_id[i] for i in ids if i in by_id])
 
 
-def _facts(row: sqlite3.Row, funders: list[sqlite3.Row]) -> list[models.Fact]:
+def _facts(row: Row, funders: list[Row]) -> list[models.Fact]:
     kind, amount = row["kind"], row["latest_amount"]
     link = models.Fact(label={"award": "Award number", "trial": "Registry ID", "publication": "DOI"}[kind],
                        value=row["award_number"], href=row["source_url"])
@@ -155,12 +161,12 @@ def _facts(row: sqlite3.Row, funders: list[sqlite3.Row]) -> list[models.Fact]:
     ]
 
 
-def project_detail(conn: sqlite3.Connection, project_id: str) -> models.ProjectDetail | None:
+def project_detail(conn: Connection, project_id: str) -> models.ProjectDetail | None:
     row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
     if not row:
         return None
     colleges = [r["college"] for r in conn.execute(
-        "SELECT college FROM project_colleges WHERE project_id = ?", (project_id,))]
+        "SELECT college FROM project_colleges WHERE project_id = ? ORDER BY college", (project_id,))]
     team = conn.execute("""
         SELECT t.researcher_id, t.name, t.role, r.department, r.college
         FROM project_team t LEFT JOIN researchers r ON r.id = t.researcher_id
@@ -204,23 +210,23 @@ def project_detail(conn: sqlite3.Connection, project_id: str) -> models.ProjectD
     )
 
 
-def related_ids(conn: sqlite3.Connection, row: sqlite3.Row, limit: int = 3) -> list[str]:
+def related_ids(conn: Connection, row: Row, limit: int = 3) -> list[str]:
     """Same investigators' other records first, then records with similar titles."""
     same_pi = [r["project_id"] for r in conn.execute(f"""
-        SELECT DISTINCT t2.project_id FROM project_team t1
+        SELECT p.id AS project_id FROM project_team t1
         JOIN project_team t2 ON t2.researcher_id = t1.researcher_id AND t2.project_id != t1.project_id
         JOIN projects p ON p.id = t2.project_id
         WHERE t1.project_id = ? AND t1.researcher_id IS NOT NULL AND {PARENT_ONLY}
-        ORDER BY p.kind = ? DESC, p.latest_fy DESC LIMIT ?
+        GROUP BY p.id ORDER BY p.kind = ? DESC, p.latest_fy DESC, p.id LIMIT ?
     """, (row["id"], row["kind"], limit))]
     if len(same_pi) < limit:
         tokens = _tokens(row["title"])
         if tokens:
             for r in conn.execute(f"""
-                SELECT f.project_id FROM projects_fts f JOIN projects p ON p.id = f.project_id
-                WHERE projects_fts MATCH ? AND {PARENT_ONLY}
-                ORDER BY bm25(projects_fts, 0, 10, 3, 1, 2) LIMIT 10
-            """, (_fts_query(tokens),)):
+                SELECT f.project_id FROM {FTS_FROM}
+                WHERE f.document @@ query AND {PARENT_ONLY}
+                ORDER BY {FTS_RANK}, p.id LIMIT 10
+            """, _fts_params(tokens)):
                 if r["project_id"] != row["id"] and r["project_id"] not in same_pi:
                     same_pi.append(r["project_id"])
                 if len(same_pi) == limit:
@@ -230,7 +236,7 @@ def related_ids(conn: sqlite3.Connection, row: sqlite3.Row, limit: int = 3) -> l
 
 # ---------- researchers ----------
 
-def _distinctive_terms(conn: sqlite3.Connection, project_ids: list[str], limit: int = 6) -> list[str]:
+def _distinctive_terms(conn: Connection, project_ids: list[str], limit: int = 6) -> list[str]:
     """Terms frequent in these projects but rare across Temple (drops generic ones like 'Data')."""
     project_ids = set(project_ids)
     all_rows = conn.execute("SELECT id, terms FROM projects").fetchall()
@@ -242,7 +248,9 @@ def _distinctive_terms(conn: sqlite3.Connection, project_ids: list[str], limit: 
     for r in all_rows:
         if r["id"] in project_ids:
             mine.update({t.strip() for t in r["terms"].split(";") if t.strip()})
-    ranked = [t for t, n in mine.most_common() if df[t] / total < 0.05 and (n > 1 or len(project_ids) == 1)]
+    # Ties: rarer across Temple first, then alphabetical, so the order doesn't depend on row order.
+    ordered = sorted(mine.items(), key=lambda kv: (-kv[1], df[kv[0]], kv[0]))
+    ranked = [t for t, n in ordered if df[t] / total < 0.05 and (n > 1 or len(project_ids) == 1)]
     return ranked[:limit]
 
 
@@ -256,11 +264,12 @@ def _tokens(text: str) -> list[str]:
     return seen[:12]
 
 
-def _fts_query(tokens: list[str]) -> str:
-    return " OR ".join(f'"{t}"' for t in tokens)
+def _fts_params(tokens: list[str]) -> list[str]:
+    """Any of the words, then all of them, as Postgres tsqueries. Tokens are [a-z0-9]+ only: nothing to escape."""
+    return [" | ".join(tokens), " & ".join(tokens)]
 
 
-def _match(row: sqlite3.Row, tokens: list[str]) -> models.Match | None:
+def _match(row: Row, tokens: list[str]) -> models.Match | None:
     """Explain a hit by which stored fields contain which query words."""
     hits: dict[str, list[str]] = {}
     for field in FIELD_LABELS:
@@ -310,9 +319,9 @@ def _filters(colleges, funders, verification, status, topics, kinds=None, fundin
 
 def _base(tokens: list[str], filters: dict[str, tuple[str, list]], skip: str | None = None) -> tuple[str, list]:
     if tokens:
-        sql, params = "FROM projects_fts f JOIN projects p ON p.id = f.project_id WHERE projects_fts MATCH ?", [_fts_query(tokens)]
+        sql, params = f"FROM {FTS_FROM} WHERE f.document @@ query", _fts_params(tokens)
     else:
-        sql, params = "FROM projects p WHERE 1", []
+        sql, params = "FROM projects p WHERE TRUE", []
     sql += f" AND {PARENT_ONLY}"
     for dim, (cond, values) in filters.items():
         if dim != skip:
@@ -321,29 +330,29 @@ def _base(tokens: list[str], filters: dict[str, tuple[str, list]], skip: str | N
     return sql, params
 
 
-def _facets(conn: sqlite3.Connection, tokens: list[str], filters: dict) -> models.Facets:
+def _facets(conn: Connection, tokens: list[str], filters: dict) -> models.Facets:
     def ids_sql(skip: str) -> tuple[str, list]:
         base, params = _base(tokens, filters, skip)
         return f"SELECT p.id {base}", params
 
     base, params = _base(tokens, filters, "kind")
-    kinds = conn.execute(f"SELECT p.kind, COUNT(*) n {base} GROUP BY p.kind ORDER BY n DESC", params).fetchall()
+    kinds = conn.execute(f"SELECT p.kind, COUNT(*) n {base} GROUP BY p.kind ORDER BY n DESC, p.kind", params).fetchall()
     sql, params = ids_sql("college")
     colleges = conn.execute(
-        f"SELECT college, COUNT(*) n FROM project_colleges WHERE project_id IN ({sql}) GROUP BY college ORDER BY n DESC",
+        f"SELECT college, COUNT(*) n FROM project_colleges WHERE project_id IN ({sql}) GROUP BY college ORDER BY n DESC, college",
         params).fetchall()
     sql, params = ids_sql("funding")
     funding = conn.execute(f"""SELECT category, COUNT(DISTINCT project_id) n FROM project_funders
-                               WHERE project_id IN ({sql}) GROUP BY category ORDER BY n DESC""", params).fetchall()
+                               WHERE project_id IN ({sql}) GROUP BY category ORDER BY n DESC, category""", params).fetchall()
     base, params = _base(tokens, filters, "funder")
-    funders = conn.execute(f"SELECT p.agency, COUNT(*) n {base} AND p.kind = 'award' GROUP BY p.agency ORDER BY n DESC",
+    funders = conn.execute(f"SELECT p.agency, COUNT(*) n {base} AND p.kind = 'award' GROUP BY p.agency ORDER BY n DESC, p.agency",
                            params).fetchall()
     base, params = _base(tokens, filters, "status")
     status = conn.execute(f"""SELECT p.is_active, COUNT(*) n {base} AND p.kind != 'publication'
                               GROUP BY p.is_active ORDER BY p.is_active DESC""", params).fetchall()
     sql, params = ids_sql("topic")
     topics = conn.execute(f"""SELECT topic_id, COUNT(*) n FROM project_topics WHERE project_id IN ({sql})
-                              GROUP BY topic_id ORDER BY n DESC""", params).fetchall()
+                              GROUP BY topic_id ORDER BY n DESC, topic_id""", params).fetchall()
 
     return models.Facets(
         kinds=[models.FacetValue(value=r["kind"], label=KIND_LABELS[r["kind"]], count=r["n"]) for r in kinds],
@@ -360,7 +369,7 @@ def _facets(conn: sqlite3.Connection, tokens: list[str], filters: dict) -> model
 
 
 def search(
-    conn: sqlite3.Connection,
+    conn: Connection,
     q: str,
     page: int = 1,
     colleges: list[str] | None = None,
@@ -375,10 +384,10 @@ def search(
     filters = _filters(colleges, funders, verification, status, topics, kinds, funding)
     base, params = _base(tokens, filters)
     if tokens:
-        order = "bm25(projects_fts, 0, 10, 3, 1, 2), p.is_active DESC"
+        order = f"{FTS_RANK}, p.is_active DESC, p.id"
         cols = "p.*, f.people"
     else:
-        order = "p.kind = 'award' DESC, p.is_active DESC, p.latest_fy DESC, p.latest_amount DESC"
+        order = "p.kind = 'award' DESC, p.is_active DESC, p.latest_fy DESC, p.latest_amount DESC NULLS LAST, p.start_date DESC NULLS LAST, p.id"
         cols = "p.*, '' AS people"
 
     total = conn.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]

@@ -5,10 +5,10 @@ stored subject terms are explainable evidence, not a claim that two people shoul
 together.
 """
 
-import sqlite3
 from collections import Counter, defaultdict
 
 from app import models
+from app.db import Connection, Row
 from app.queries import PARENT_ONLY, _projects, _tokens
 from app.topics import BY_ID
 
@@ -25,7 +25,7 @@ DEMO_TERMS = (
 )
 
 
-def _topic_counts(conn: sqlite3.Connection, project_ids: list[str]) -> Counter:
+def _topic_counts(conn: Connection, project_ids: list[str]) -> Counter:
     if not project_ids:
         return Counter()
     marks = ",".join("?" * len(project_ids))
@@ -34,7 +34,7 @@ def _topic_counts(conn: sqlite3.Connection, project_ids: list[str]) -> Counter:
     ))
 
 
-def _terms(conn: sqlite3.Connection, project_ids: list[str]) -> set[str]:
+def _terms(conn: Connection, project_ids: list[str]) -> set[str]:
     if not project_ids:
         return set()
     marks = ",".join("?" * len(project_ids))
@@ -45,7 +45,7 @@ def _terms(conn: sqlite3.Connection, project_ids: list[str]) -> set[str]:
     return words
 
 
-def _project_data(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> dict[str, dict]:
+def _project_data(conn: Connection, rows: list[Row]) -> dict[str, dict]:
     ids = [row["id"] for row in rows]
     if not ids:
         return {}
@@ -99,7 +99,7 @@ def _score(data: dict, profile: models.ProfileInput, *, outside_boost: bool = Fa
 
 
 def _matches(
-    conn: sqlite3.Connection,
+    conn: Connection,
     *,
     researcher_id: str,
     name: str,
@@ -154,7 +154,7 @@ def _matches(
     )
 
 
-def for_researcher(conn: sqlite3.Connection, researcher_id: str) -> models.ResearcherCompatibility | None:
+def for_researcher(conn: Connection, researcher_id: str) -> models.ResearcherCompatibility | None:
     row = conn.execute("SELECT id, name, college FROM researchers WHERE id = ?", (researcher_id,)).fetchone()
     if not row:
         return None
@@ -163,8 +163,10 @@ def for_researcher(conn: sqlite3.Connection, researcher_id: str) -> models.Resea
     )]
     profile = models.ProfileInput(
         college=row["college"],
-        topics=list(_topic_counts(conn, project_ids))[:8],
-        terms=list(_terms(conn, project_ids))[:12],
+        # Most frequent topics first; terms alphabetically. Both used to follow set/row order, which changed
+        # between processes (Python randomizes set order per process) and between databases.
+        topics=[t for t, _ in sorted(_topic_counts(conn, project_ids).items(), key=lambda kv: (-kv[1], kv[0]))][:8],
+        terms=sorted(_terms(conn, project_ids))[:12],
     )
     return _matches(
         conn,
@@ -174,7 +176,7 @@ def for_researcher(conn: sqlite3.Connection, researcher_id: str) -> models.Resea
     )
 
 
-def demo_profile(conn: sqlite3.Connection) -> models.DemoResearcherProfile:
+def demo_profile(conn: Connection) -> models.DemoResearcherProfile:
     interests = [models.TopicRef(id=t, name=BY_ID[t].name) for t in DEMO_INTERESTS if t in BY_ID]
     compatibility = _matches(
         conn,
@@ -197,7 +199,7 @@ def demo_profile(conn: sqlite3.Connection) -> models.DemoResearcherProfile:
 
 
 def _profile_match(
-    conn: sqlite3.Connection, profile: models.ProfileInput, project_ids: list[str], limit: int = MATCH_LIMIT
+    conn: Connection, profile: models.ProfileInput, project_ids: list[str], limit: int = MATCH_LIMIT
 ) -> models.ResearcherMatch:
     if not project_ids:
         return models.ResearcherMatch(score=0, reasons=[], sharedTopics=[], records=[])
@@ -223,7 +225,7 @@ def _profile_match(
 
 
 def match_researcher(
-    conn: sqlite3.Connection, researcher_id: str, profile: models.ProfileInput
+    conn: Connection, researcher_id: str, profile: models.ProfileInput
 ) -> models.ResearcherMatch | None:
     if not conn.execute("SELECT 1 FROM researchers WHERE id = ?", (researcher_id,)).fetchone():
         return None
@@ -233,7 +235,7 @@ def match_researcher(
     return _profile_match(conn, profile, ids)
 
 
-def match_projects(conn: sqlite3.Connection, profile: models.ProfileInput, ids: list[str]) -> models.ProjectMatches:
+def match_projects(conn: Connection, profile: models.ProfileInput, ids: list[str]) -> models.ProjectMatches:
     if not ids:
         return models.ProjectMatches(matches=[])
     marks = ",".join("?" * len(ids))
@@ -248,7 +250,7 @@ def match_projects(conn: sqlite3.Connection, profile: models.ProfileInput, ids: 
     return models.ProjectMatches(matches=matches)
 
 
-def _collaborators(conn: sqlite3.Connection, profile: models.ProfileInput) -> list[models.CollaboratorMatch]:
+def _collaborators(conn: Connection, profile: models.ProfileInput) -> list[models.CollaboratorMatch]:
     rows = conn.execute(f"""
         SELECT p.* FROM projects p
         WHERE p.kind IN ('award', 'trial') AND p.is_active = 1 AND {PARENT_ONLY}
@@ -273,7 +275,7 @@ def _collaborators(conn: sqlite3.Connection, profile: models.ProfileInput) -> li
             f"SELECT id, name, college, department FROM researchers WHERE id IN ({rmarks})", researcher_ids
         )
     }
-    by_researcher: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    by_researcher: dict[str, list[Row]] = defaultdict(list)
     for member in team:
         if member["researcher_id"] in researchers:
             by_researcher[member["researcher_id"]].append(member)
@@ -314,7 +316,7 @@ def _collaborators(conn: sqlite3.Connection, profile: models.ProfileInput) -> li
     ]
 
 
-def for_you(conn: sqlite3.Connection, profile: models.ProfileInput) -> models.ForYou:
+def for_you(conn: Connection, profile: models.ProfileInput) -> models.ForYou:
     recruiting = ("Recruiting", "Not yet recruiting", "Enrolling by invitation")
     trials = _matches(
         conn, researcher_id="", name="", profile=profile, synthetic=True,

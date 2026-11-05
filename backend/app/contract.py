@@ -144,7 +144,7 @@ def render_endpoints() -> str:
     from app.main import create_app
 
     rows = ["| Method | Path | Parameters | Returns |", "| --- | --- | --- | --- |"]
-    for route in create_app(":memory:").routes:
+    for route in create_app(connect_db=False).routes:
         if not isinstance(route, APIRoute) or not route.path.startswith("/api/"):
             continue
         for method in sorted(route.methods):

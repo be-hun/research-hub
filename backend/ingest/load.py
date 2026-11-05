@@ -1,9 +1,10 @@
 """Merge normalized rows from every source and load them in one transaction."""
 
 import re
-import sqlite3
+import unicodedata
 from collections import Counter, defaultdict
 
+from app.db import Connection
 from app.topics import AREA_TO_TOPIC, topics_from_text
 from ingest.text import name_key
 
@@ -198,28 +199,47 @@ def finalize(data: dict) -> dict:
     return data
 
 
-def _insert(conn: sqlite3.Connection, table: str, rows: list[dict]) -> None:
+def search_text(text: str) -> str:
+    """Text as SQLite's unicode61 tokenizer saw it: accents removed and every non-alphanumeric a word break.
+
+    Postgres's parser would otherwise read "infection/disease" as a file path, "14-19" as one token and
+    "Praticò" as not matching "pratico".
+    """
+    plain = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+    return re.sub(r"[\W_]+", " ", plain).strip()
+
+
+def _value(v):
+    """COPY sends text, so an INTEGER column needs 1 rather than True and 2024 rather than 2024.0."""
+    if isinstance(v, bool) or (isinstance(v, float) and v.is_integer()):
+        return int(v)
+    return v
+
+
+def _insert(conn: Connection, table: str, rows: list[dict]) -> None:
     if not rows:
         return
     cols = list(rows[0])
-    sql = f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})"
-    conn.executemany(sql, [tuple(r[c] for c in cols) for r in rows])
+    conn.copy_rows(table, cols, ([_value(r[c]) for c in cols] for r in rows))
 
 
-def load(conn: sqlite3.Connection, data: dict) -> None:
-    """Replace all imported rows in one transaction, so a rerun gives the same result."""
+def load(conn: Connection, data: dict) -> None:
+    """Replace all imported rows in one transaction, so a rerun gives the same result.
+
+    DELETE rather than TRUNCATE: readers keep seeing the previous data until the new rows commit.
+    """
     with conn:
         conn.execute("DELETE FROM projects")  # cascades to child tables
         conn.execute("DELETE FROM researchers")
         conn.execute("DELETE FROM research_areas")
-        conn.execute("DELETE FROM projects_fts")
         for table in TABLES:
             _insert(conn, table, data[table])
 
         people: dict[str, list[str]] = defaultdict(list)
         for member in data["project_team"]:
             people[member["project_id"]].append(member["name"])
-        conn.executemany(
-            "INSERT INTO projects_fts (project_id, title, abstract, terms, people) VALUES (?, ?, ?, ?, ?)",
-            [(p["id"], p["title"], p["abstract"], p["terms"], ", ".join(people[p["id"]])) for p in data["projects"]],
+        conn.copy_rows(  # the search document column is generated from these
+            "projects_fts", ["project_id", "title", "abstract", "terms", "people"],
+            ([p["id"], *(search_text(t) for t in (p["title"], p["abstract"], p["terms"], ", ".join(people[p["id"]])))]
+             for p in data["projects"]),
         )

@@ -84,11 +84,12 @@ def test_missing_department_falls_back_to_pi_college():
 
 
 def test_load_is_repeatable():
-    conn = connect(":memory:")
+    conn = connect()
     init_schema(conn)
     data = merge([normalize([record()])])
     load(conn, data)
     load(conn, data)
     assert conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0] == 1
-    assert conn.execute("SELECT COUNT(*) FROM projects_fts WHERE projects_fts MATCH 'syndrome'").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM projects_fts WHERE document @@ to_tsquery('english', 'syndrome')"
+                        ).fetchone()[0] == 1
     assert conn.execute("SELECT name FROM researchers").fetchone()[0] == "Domenico Pratico"

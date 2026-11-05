@@ -27,15 +27,25 @@ npm run dev   # http://localhost:3000, forwards /api/* to http://localhost:8000 
 
 ## Run the backend
 
+The backend stores everything in Postgres: Supabase in production, a local Postgres for development and tests.
+
 ```bash
+brew install postgresql@17 && brew services start postgresql@17   # once
+createdb research_hub && createdb research_hub_test                # once
 cd backend
+cp .env.example .env                   # DATABASE_URL defaults to the local research_hub database
 uv sync
-uv run python -m ingest.run            # fetch every source into data/hub.db (about 2 minutes)
+uv run python -m ingest.run            # fetch every source into the database (about 2 minutes)
 uv run python -m ingest.run --offline  # reload from the cached raw JSON, no API calls
-uv run python -m app.backup             # create a consistent SQLite backup
+uv run python -m app.backup             # pg_dump the app's tables to data/backups/
 uv run uvicorn app.main:app --reload            # http://localhost:8000/api/health
-uv run pytest
+uv run pytest                          # each test gets its own schema in research_hub_test (TEST_DATABASE_URL)
 ```
+
+To use Supabase, set `DATABASE_URL` in `backend/.env` to the project's **Session pooler** URI (Project > Connect),
+ending in `?sslmode=require`, and run `uv run python -m ingest.run --offline` once to fill it. Only the backend holds
+this connection string; the browser still calls `/api/...`, and every table has row level security with no policies,
+so Supabase's public Data API can't read them.
 
 | Source | What | Notes |
 | --- | --- | --- |
@@ -69,7 +79,7 @@ AI-generated illustrations and say so in the footer.
 
 ## Current architecture and next launch work
 
-The current prototype uses FastAPI and SQLite with FTS5, a Next.js 14 App Router frontend, five public
+The current prototype uses FastAPI and Postgres (Supabase) with full-text search, a Next.js 14 App Router frontend, five public
 data sources, and one backend AI wrapper. Search, filters, counts, and charts are ordinary database queries.
 The assistant retrieves records first and only returns database-backed cards and citations.
 
@@ -104,11 +114,11 @@ The next launch increments are:
 - Rotate any credential that has ever appeared in Git history. Removing the file does not revoke the credential.
 - Put the site behind HTTPS and expose `/api/health` through the reverse proxy.
 - The assistant has no per-client rate limit and accepts up to eight conversation messages per request; add shared rate limiting before a public launch. Set `AI_TIMEOUT_SECONDS` for the provider timeout.
-- `ingest.run` creates a consistent backup in `backend/data/backups/` before every import. Keep backups outside the deploy volume in production and retain the prior database until the new run is verified. Use `--no-backup` only for a deliberate local operation.
+- `ingest.run` dumps the current data to `backend/data/backups/` (`pg_dump`) before every import, and loads the new data in one transaction so the site never shows a half-finished import. Keep backups outside the deploy volume in production and retain the prior database until the new run is verified. Use `--no-backup` only for a deliberate local operation.
 - Run `uv run pytest` and `npm run build` before deployment. CI runs both on pushes and pull requests.
 - Deploy only a commit on `main`, following [docs/deploy.md](docs/deploy.md).
 
-The production plan in this README is intentionally a runbook, not a proposal for a different stack. SQLite remains the Demo Day database; a real launch additionally needs managed backups, scheduled refreshes, non-root services, HTTPS, monitoring, and an identity-review workflow.
+The production plan in this README is intentionally a runbook, not a proposal for a different stack. Supabase Postgres is the database; a real launch additionally needs Supabase's managed backups turned on, scheduled refreshes, non-root services, HTTPS, monitoring, and an identity-review workflow.
 
 ## Open questions
 

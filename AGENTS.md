@@ -12,7 +12,7 @@ Project overview, setup commands and data sources are in [README.md](README.md);
 | Code | `main` on GitHub | every worktree, the MVP server |
 | API contract | `backend/app/models.py` + routes in `backend/app/main.py` | `frontend/src/lib/types.ts`, the endpoint table in `docs/api.md` (generated) |
 | Agent rules | this file | `CLAUDE.md`, `.github/copilot-instructions.md` (pointers only) |
-| Data | the ingest scripts in `backend/ingest/` | `backend/data/hub.db` (untracked, rebuildable) |
+| Data | the ingest scripts in `backend/ingest/` | the Postgres database at `DATABASE_URL` (Supabase in production; rebuildable) |
 
 Nothing is copied between agents through chat or untracked files, and nothing is edited on the server.
 
@@ -68,8 +68,10 @@ The main checkout keeps the usual ports. A second worktree uses different ones s
 | main checkout | `uv run uvicorn app.main:app --reload --port 8000` | `npm run dev` (3000) |
 | second worktree | `uv run uvicorn app.main:app --reload --port 8001` | `API_URL=http://localhost:8001 npm run dev -- -p 3001` |
 
-Each worktree needs its own `uv sync` and `npm install`, plus a copy of `backend/.env` and `backend/data/`. Both are
-untracked, so copy them from the main checkout.
+Each worktree needs its own `uv sync` and `npm install`, plus a copy of `backend/.env` and `backend/data/raw/`. Both
+are untracked, so copy them from the main checkout. Point each worktree's `DATABASE_URL` at its own local database
+(`createdb research_hub_2`, then `uv run python -m ingest.run --offline`), so an import in one doesn't replace the
+other's data. Never point a worktree or a test run at the production Supabase database.
 
 ## Before you open a PR
 

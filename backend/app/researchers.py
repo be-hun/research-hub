@@ -5,10 +5,10 @@ their own records with their own source pages. Site-wide totals count parent awa
 grant count can be higher than the number of grants it adds to a college or topic total.
 """
 
-import sqlite3
 
 from app import models
 from app.colleges import COLLEGE_NAMES
+from app.db import Connection, Row
 from app.explore import SOURCE_INFO
 from app.queries import KIND_LABELS, _distinctive_terms, _initials, _projects
 from app.topics import BY_ID as TOPICS_BY_ID
@@ -36,7 +36,7 @@ def identity_note(confidence: str, sources: list[str]) -> str:
             "confirmed: some records may belong to a different person with the same name.")
 
 
-def _records(conn: sqlite3.Connection, researcher_id: str) -> list[sqlite3.Row]:
+def _records(conn: Connection, researcher_id: str) -> list[Row]:
     return conn.execute("""
         SELECT p.*, t.role FROM project_team t JOIN projects p ON p.id = t.project_id
         WHERE t.researcher_id = ?
@@ -44,21 +44,21 @@ def _records(conn: sqlite3.Connection, researcher_id: str) -> list[sqlite3.Row]:
     """, (researcher_id,)).fetchall()
 
 
-def projects(conn: sqlite3.Connection, researcher_id: str) -> list[models.ResearcherProject] | None:
+def projects(conn: Connection, researcher_id: str) -> list[models.ResearcherProject] | None:
     rows = _records(conn, researcher_id)
     if not rows:
         return None
     return [models.ResearcherProject(role=r["role"], project=p) for r, p in zip(rows, _projects(conn, rows))]
 
 
-def collaborators(conn: sqlite3.Connection, researcher_id: str,
+def collaborators(conn: Connection, researcher_id: str,
                   limit: int = COLLABORATOR_LIMIT) -> list[models.ResearcherCollaborator]:
     """People listed on the same records, most shared records first. Each link cites the shared records."""
     me = conn.execute("SELECT college FROM researchers WHERE id = ?", (researcher_id,)).fetchone()
     my_college = me["college"] if me else None
     rows = conn.execute("""
         SELECT r.id, r.name, r.college, r.department, r.identity_confidence,
-               COUNT(DISTINCT t2.project_id) AS shared, GROUP_CONCAT(DISTINCT t2.project_id) AS ids
+               COUNT(DISTINCT t2.project_id) AS shared, string_agg(DISTINCT t2.project_id, ',') AS ids
         FROM project_team t1
         JOIN project_team t2 ON t2.project_id = t1.project_id AND t2.researcher_id != t1.researcher_id
         JOIN researchers r ON r.id = t2.researcher_id
@@ -80,7 +80,7 @@ def collaborators(conn: sqlite3.Connection, researcher_id: str,
     ]
 
 
-def profile(conn: sqlite3.Connection, researcher_id: str) -> models.ResearcherProfile | None:
+def profile(conn: Connection, researcher_id: str) -> models.ResearcherProfile | None:
     """None when the researcher is unknown or no stored record lists them (both are a 404)."""
     row = conn.execute("SELECT * FROM researchers WHERE id = ?", (researcher_id,)).fetchone()
     if not row:
@@ -176,13 +176,13 @@ def profile(conn: sqlite3.Connection, researcher_id: str) -> models.ResearcherPr
 PEOPLE_PAGE_SIZE = 24
 
 
-def directory(conn: sqlite3.Connection, q: str = "", colleges: list[str] | None = None, kind: str | None = None,
+def directory(conn: Connection, q: str = "", colleges: list[str] | None = None, kind: str | None = None,
               sort: str = "records", page: int = 1) -> models.PeopleResponse:
     """People with at least one record. Name/department search is a parameterized LIKE; counts are SQL."""
     where, params = ["EXISTS (SELECT 1 FROM project_team t WHERE t.researcher_id = r.id)"], []
     q = q.strip()
     if q:
-        where.append("(r.name LIKE ? OR COALESCE(r.department, '') LIKE ?)")
+        where.append("(r.name ILIKE ? OR COALESCE(r.department, '') ILIKE ?)")  # case-insensitive, like SQLite's LIKE
         params += [f"%{q}%", f"%{q}%"]
     if kind in KIND_LABELS:
         where.append("EXISTS (SELECT 1 FROM project_team t JOIN projects p ON p.id = t.project_id "
@@ -195,7 +195,7 @@ def directory(conn: sqlite3.Connection, q: str = "", colleges: list[str] | None 
     sql_where = " AND ".join(where)
 
     total = conn.execute(f"SELECT COUNT(*) FROM researchers r WHERE {sql_where}", params).fetchone()[0]
-    order = "r.name COLLATE NOCASE" if sort == "name" else "records DESC, r.name COLLATE NOCASE"
+    order = "lower(r.name), r.id" if sort == "name" else "records DESC, lower(r.name), r.id"
     page = max(page, 1)
     rows = conn.execute(f"""
         SELECT r.id, r.name, r.college, r.department, r.identity_confidence,
@@ -220,7 +220,7 @@ def directory(conn: sqlite3.Connection, q: str = "", colleges: list[str] | None 
                 topics[t["researcher_id"]].append(models.TopicRef(id=t["topic_id"], name=TOPICS_BY_ID[t["topic_id"]].name))
 
     facets = conn.execute(f"""SELECT r.college, COUNT(*) AS n FROM researchers r
-                              WHERE {base_where} AND r.college IS NOT NULL GROUP BY r.college ORDER BY n DESC""",
+                              WHERE {base_where} AND r.college IS NOT NULL GROUP BY r.college ORDER BY n DESC, r.college""",
                           base_params).fetchall()
     return models.PeopleResponse(
         query=q, total=total, page=page, pageSize=PEOPLE_PAGE_SIZE, sort="name" if sort == "name" else "records",
