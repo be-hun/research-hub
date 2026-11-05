@@ -79,3 +79,26 @@ def test_profile_validation_and_matching_endpoints():
     assert client.post("/api/match/projects", json={"profile": {"topics": ["aging"]}, "ids": ["missing"]}).json() == {
         "matches": []
     }
+
+
+def test_compatibility_does_not_recommend_a_college_match_without_domain_evidence():
+    app = create_app()
+    load(app.state.db, merge([normalize([record()])]))
+    app.state.db.execute(
+        """INSERT INTO projects (
+            id, award_number, kind, status_label, title, summary, abstract, terms, agency, funder,
+            start_year, end_year, latest_fy, is_active, source, source_label, source_url, verification, updated_at
+        ) VALUES (?, ?, 'award', 'Active', ?, ?, ?, ?, 'NIH', 'NIH', 2025, 2027, 2025, 1,
+                  'nih-reporter', 'NIH RePORTER', 'https://example.test/other', 'public-award-record', '2025-01-01')
+        """,
+        ("nih-R01OTHER", "R01OTHER", "Unrelated project", "Unrelated", "Unrelated", "unrelated"),
+    )
+    app.state.db.execute(
+        "INSERT INTO project_colleges (project_id, college) VALUES (?, ?)",
+        ("nih-R01OTHER", "medicine"),
+    )
+
+    response = TestClient(app).get("/api/researchers/r-nih-10/compatibility")
+
+    assert response.status_code == 200
+    assert all(match["project"]["id"] != "nih-R01OTHER" for match in response.json()["matches"])
