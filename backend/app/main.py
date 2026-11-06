@@ -4,7 +4,8 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import ai, assistant, compatibility, config, dashboards, explore, intro, models, queries, researchers, summaries
+from app import (ai, assistant, compatibility, config, dashboards, explore, intro, models, opportunities,
+                 opportunity_matches, queries, researchers, summaries)
 from app.colleges import COLLEGE_NAMES
 from app.db import Connection, Pool, connect, ensure_search_extensions, init_schema
 
@@ -87,6 +88,13 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
             raise HTTPException(404, "Project not found")
         return detail
 
+    @app.get("/api/projects/{project_id}/opportunities")
+    def project_opportunities(conn: DB, project_id: str) -> list[models.Opportunity]:
+        rows = opportunities.for_project(conn, project_id)
+        if rows is None:
+            raise HTTPException(404, "Project not found")
+        return rows
+
     @app.get("/api/projects")
     def projects(conn: DB, ids: str = "") -> list[models.Project]:
         return queries.projects_by_ids(conn, [i for i in ids.split(",") if i])
@@ -127,6 +135,41 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
         result = compatibility.for_researcher(conn, researcher_id)
         if not result:
             raise HTTPException(404, "Researcher not found")
+        return result
+
+    @app.get("/api/researchers/{researcher_id}/opportunities")
+    def researcher_opportunities(conn: DB, researcher_id: str) -> list[models.ResearcherOpportunity]:
+        rows = opportunity_matches.for_researcher(conn, researcher_id)
+        if rows is None:
+            raise HTTPException(404, "Researcher not found")
+        return rows
+
+    @app.get("/api/opportunities")
+    def opportunity_search(
+        conn: DB,
+        q: str = Query("", max_length=200),
+        page: int = Query(1, ge=1),
+        agency: list[str] = Query(default=[]),
+        status: list[models.OpportunityStatus] = Query(default=[]),
+        category: list[str] = Query(default=[]),
+        universities: bool = False,
+        closes_within: int | None = Query(None, ge=0, le=3650),
+        sort: models.OpportunitySort = "deadline",
+    ) -> models.OpportunitySearchResponse:
+        return opportunities.search(conn, q, page, agency, status, category, universities, closes_within, sort)
+
+    @app.get("/api/opportunities/{opportunity_id}")
+    def opportunity(conn: DB, opportunity_id: str) -> models.OpportunityDetail:
+        detail = opportunities.detail(conn, opportunity_id)
+        if not detail:
+            raise HTTPException(404, "Funding opportunity not found")
+        return detail
+
+    @app.get("/api/opportunities/{opportunity_id}/researchers")
+    def opportunity_researchers(conn: DB, opportunity_id: str) -> models.OpportunityResearchers:
+        result = opportunity_matches.researchers_for(conn, opportunity_id)
+        if result is None:
+            raise HTTPException(404, "Funding opportunity not found")
         return result
 
     @app.get("/api/demo-profile")
