@@ -219,3 +219,10 @@ def test_a_failed_fetch_keeps_the_previous_calls(monkeypatch, capsys):
     run.import_calls(conn, offline=False)  # doesn't raise
     assert "not updated" in capsys.readouterr().out
     assert conn.execute("SELECT COUNT(*) FROM opportunities").fetchone()[0] == 1
+
+
+def test_a_refresh_that_fetches_far_fewer_calls_keeps_the_stored_ones():
+    assert grants_gov.too_few(fetched=0, stored=1393)
+    assert grants_gov.too_few(fetched=600, stored=1393)
+    assert not grants_gov.too_few(fetched=1300, stored=1393)
+    assert not grants_gov.too_few(fetched=5, stored=0)  # first import into an empty database

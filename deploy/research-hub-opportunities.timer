@@ -1,0 +1,11 @@
+# Runs research-hub-opportunities.service once a day. Persistent=true catches up after the server was off.
+[Unit]
+Description=Daily Grants.gov funding-call refresh for Research Hub
+
+[Timer]
+OnCalendar=*-*-* 05:30:00 America/New_York
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

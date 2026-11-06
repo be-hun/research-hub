@@ -312,11 +312,20 @@ def refresh(conn, raw: dict) -> dict:
     return data
 
 
+MIN_SHARE = 0.5  # a refresh that fetches fewer than half the stored calls is treated as a failed fetch
+
+
+def too_few(fetched: int, stored: int) -> bool:
+    return stored > 0 and fetched < stored * MIN_SHARE
+
+
 def main() -> None:
     from app.db import connect, init_schema
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--offline", action="store_true", help=f"reload calls from {CACHE.name} instead of the API")
+    parser.add_argument("--force", action="store_true",
+                        help="replace the stored calls even when far fewer were fetched (see MIN_SHARE)")
     args = parser.parse_args()
     if args.offline:
         raw = read_cache()
@@ -327,6 +336,11 @@ def main() -> None:
         write_cache(raw)
     conn = connect()
     init_schema(conn)
+    stored = conn.execute("SELECT COUNT(*) FROM opportunities").fetchone()[0]
+    if not args.force and too_few(len(raw["opportunities"]), stored):
+        # The daily timer runs this unattended: a partial or empty answer from Grants.gov must not empty the site.
+        sys.exit(f"fetched {len(raw['opportunities'])} calls but {stored} are stored; kept the stored calls "
+                 f"(run with --force to replace them anyway)")
     data = refresh(conn, raw)
     where = "cache" if args.offline else "Grants.gov"
     print(f"read {len(raw['opportunities'])} calls from {where} (fetched {raw['fetched_at']}); "
