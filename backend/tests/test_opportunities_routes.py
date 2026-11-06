@@ -12,4 +12,4 @@ def test_opportunity_routes_answer_with_their_contract_shapes():
     assert search.json()["sort"] == "deadline" and search.json()["results"] == []
     assert client.get("/api/opportunities", params={"status": "open"}).status_code == 422
     assert client.get("/api/opportunities/gg-0").status_code == 404
-    assert client.get("/api/opportunities/gg-0/researchers").json()["notice"]
+    assert client.get("/api/opportunities/gg-0/researchers").status_code == 404
