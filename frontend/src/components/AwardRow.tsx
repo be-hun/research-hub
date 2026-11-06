@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { isStaleTrialStatus, money, shortDate, yearRange } from "@/lib/format";
-import type { Project } from "@/lib/types";
+import type { MatchBand, Project } from "@/lib/types";
 import Icon from "./Icon";
 import { CollegeTag, KindTag, SourceTag, StatusChip } from "./Tags";
 
@@ -26,12 +26,34 @@ function Meta({ project }: { project: Project }) {
   );
 }
 
+/** The bands worth pointing out. "Some overlap" is a weak match and gets no badge. */
+const SHOWN_BANDS: MatchBand[] = ["Strong overlap", "Good overlap"];
+
+/** Search's abstract snippet, with each matched word (sent as ⟦word⟧) highlighted. Built as text, never as HTML. */
+function Snippet({ text }: { text: string }) {
+  return (
+    <p className="text-small text-ink-2 mt-2 break-words">
+      {text.split(/(⟦[^⟧]*⟧)/).map((part, i) =>
+        part.startsWith("⟦") && part.endsWith("⟧") ? (
+          <mark key={i} className="bg-soon-bg text-ink font-medium rounded-sm px-0.5">
+            {part.slice(1, -1)}
+          </mark>
+        ) : (
+          part
+        ),
+      )}
+    </p>
+  );
+}
+
 /** One record (grant, trial or publication) as a compact row. Used by search, topic and explore lists. */
 export default function AwardRow({
   project,
   showSummary = false,
   context,
   interestMatch,
+  interestBand,
+  snippet = project.match?.snippet,
   stacked = false,
 }: {
   project: Project;
@@ -40,6 +62,10 @@ export default function AwardRow({
   context?: string;
   /** Demo account only: why this record matches the signed-in profile's interests. */
   interestMatch?: string;
+  /** Demo account only: how strong that match is. With a band, only Strong and Good overlap get the badge. */
+  interestBand?: MatchBand;
+  /** Words around the match, with matched words in ⟦ ⟧. Defaults to the search result's own snippet. */
+  snippet?: string | null;
   /** Keep status and dates under the title even on wide screens, for narrow columns. */
   stacked?: boolean;
 }) {
@@ -51,6 +77,7 @@ export default function AwardRow({
         : "Sponsor not listed"
       : [project.pi.name.trim() || "Principal investigator not listed", project.pi.department].filter(Boolean).join(" · ");
   const stale = project.kind === "trial" && isStaleTrialStatus(project.statusLabel, project.endYear);
+  const showInterest = !!interestBand && SHOWN_BANDS.includes(interestBand);
   return (
     <li className="py-4 border-b border-line last:border-b-0">
       <div className={`flex flex-col gap-x-6 gap-y-2 ${stacked ? "" : "sm:flex-row sm:items-start"}`}>
@@ -68,13 +95,20 @@ export default function AwardRow({
           </h3>
           <p className="text-small text-ink-3 mt-1 break-words">{people}</p>
           {context && <p className="text-tiny text-ink-2 mt-1">{context}</p>}
-          {interestMatch && (
+          {showInterest && (
             <p className="inline-flex items-start gap-1 text-tiny font-medium text-cherry bg-cherry-tint rounded-md px-2 py-1 mt-2">
-              <Icon name="star" size={14} className="mt-px" />
-              <span>Matches your interests · {interestMatch}</span>
+              <Icon name="star" size={14} className="mt-[3px]" />
+              <span>
+                Matches your interests{interestBand && <> · <strong className="font-semibold">{interestBand}</strong></>}
+                {interestMatch && <span className="font-normal text-cherry-dark"> · {interestMatch}</span>}
+              </span>
             </p>
           )}
-          {showSummary && <p className="text-small text-ink-2 mt-2 line-clamp-2">{project.summary}</p>}
+          {snippet ? (
+            <Snippet text={snippet} />
+          ) : (
+            showSummary && <p className="text-small text-ink-2 mt-2 line-clamp-2">{project.summary}</p>
+          )}
           {project.kind !== "award" && project.fundingTypes.length > 0 && (
             <p className="text-tiny text-ink-3 mt-1.5">Funding: {project.fundingTypes.join(" · ")}</p>
           )}

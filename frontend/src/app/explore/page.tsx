@@ -65,6 +65,11 @@ export default async function ExplorePage() {
               .
             </p>
           )}
+          {o.unassigned && (o.unassigned.awards > 0 || o.unassigned.funding > 0 || o.unassigned.trials > 0 || o.unassigned.publications > 0) && (
+            <p className="text-small text-ink-3 mt-3">
+              Not assigned to a college: {money(o.unassigned.funding)} across {o.unassigned.awards.toLocaleString()} grants.
+            </p>
+          )}
         </Section>
 
         <Section title="Federal funding by agency" subtitle={`Grant money obligated FY${firstFy}–FY${lastFy}`}>

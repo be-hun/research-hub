@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import AwardRow from "@/components/AwardRow";
+import Icon from "@/components/Icon";
 import SearchBar from "@/components/SearchBar";
 import { getPeople, matchProjects, peopleQueryString, searchProjects, searchQueryString, type SearchParams } from "@/lib/api";
 import { COLLEGES } from "@/lib/colleges";
+import { count } from "@/lib/format";
 import { demoProfileInput } from "@/lib/demo";
 import { plainReasons } from "@/lib/matchReasons";
-import type { CollegeId, FacetValue } from "@/lib/types";
+import type { CollegeId, FacetValue, PersonSummary } from "@/lib/types";
 import { CollegeTag } from "@/components/Tags";
 
 export const metadata: Metadata = { title: "Search" };
@@ -75,6 +77,39 @@ function FacetGroup({
 
 const SHOWN = 5;
 
+/** A name search's answer: the person, with enough to recognise them before opening the profile. */
+function PersonCard({ person }: { person: PersonSummary }) {
+  const c = person.counts;
+  const totals = [c.grants && count(c.grants, "grant"), c.trials && count(c.trials, "trial"), c.publications && count(c.publications, "paper")].filter(Boolean);
+  return (
+    <Link
+      href={`/researchers/${person.researcherId}`}
+      className="group flex gap-4 h-full rounded-xl border border-line bg-surface p-5 hover:border-cherry shadow-card"
+    >
+      <span
+        className="w-12 h-12 rounded-full bg-cherry-tint text-cherry font-serif font-semibold flex items-center justify-center shrink-0"
+        aria-hidden="true"
+      >
+        {person.initials}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-serif text-h3 text-ink group-hover:text-cherry break-words">{person.name}</span>
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-small text-ink-3">
+          <CollegeTag id={person.college} short={false} />
+          {person.department && <span className="break-words">{person.department}</span>}
+        </span>
+        {totals.length > 0 && <span className="block mt-2 text-small text-ink-2 num">{totals.join(" · ")} at Temple</span>}
+        {person.topics.length > 0 && (
+          <span className="block mt-1 text-small text-ink-3">Works on {person.topics.map((t) => t.name).join(", ")}</span>
+        )}
+        <span className="inline-flex items-center gap-1 mt-3 text-small font-medium text-cherry">
+          View profile <Icon name="arrow_forward" size={16} />
+        </span>
+      </span>
+    </Link>
+  );
+}
+
 /** 1 … 4 5 6 … 398: the first and last page, and the pages around the current one. */
 function pageList(page: number, pages: number): (number | "gap")[] {
   const wanted = new Set([1, pages, page - 1, page, page + 1].filter((n) => n >= 1 && n <= pages));
@@ -93,16 +128,23 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
     kinds: list(searchParams.kind),
     funding: list(searchParams.funding),
   };
-  const data = await searchProjects(params);
+  // A name or department in the query: show the matching people above the records (the box promises people too).
+  const [data, people] = await Promise.all([
+    searchProjects(params),
+    params.q && params.page === 1 ? getPeople({ q: params.q }).catch(() => null) : null,
+  ]);
   // Demo account: mark the results on this page that match Maya's interests. A failure only drops the markers.
   const profile = demoProfileInput();
   const matches = profile
     ? await matchProjects(profile, data.results.map((p) => p.id)).catch(() => ({ matches: [] }))
     : { matches: [] };
-  const matchReason = new Map(matches.matches.map((m) => [m.id, plainReasons(m.reasons)]));
-  // A name or department in the query: show the matching people above the records (the box promises people too).
-  const people = params.q && params.page === 1 ? await getPeople({ q: params.q }).catch(() => null) : null;
+  const interest = new Map(matches.matches.map((m) => [m.id, m]));
+  // A few people and nothing else: the query is most likely a name, so the people are the answer and come first.
+  const nameSearch = !!people && people.total > 0 && people.total <= 3;
+  const CountHeading = nameSearch ? "h2" : "h1"; // the people are the page's answer on a name search
   const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
+  // Several words without quotes: say quotes force an exact phrase (the backend reads them with websearch_to_tsquery).
+  const quoteHint = data.matchMode !== "phrase" && !params.q.includes('"') && params.q.split(/\s+/).length > 1;
   const filtered = [params.colleges, params.funders, params.status, params.topics, params.kinds, params.funding].some((v) => v?.length);
   const pageHref = (page: number) => `/search?${searchQueryString({ ...params, page })}`;
 
@@ -161,6 +203,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
         {params.q && (
           <p className="text-small text-ink-3 mt-2">
             <span className="font-medium text-ink-2">Searched for:</span> {data.interpretedAs.replace(/^Keywords: /, "")}
+            {quoteHint && <> · Use quotes for an exact phrase, like &quot;{params.q}&quot;</>}
           </p>
         )}
       </div>
@@ -178,7 +221,23 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
         </aside>
 
         <section aria-label="Results" className="min-w-0">
-          <h1 className="font-sans text-body text-ink-2 mb-2">
+          {nameSearch && people && (
+            <div className="mb-8">
+              <h1 className="font-sans text-body text-ink-2 mb-3">
+                <span className="font-semibold text-ink num">{people.total}</span> {people.total === 1 ? "person" : "people"} matching{" "}
+                <span className="font-semibold text-ink">“{params.q}”</span>
+              </h1>
+              <ul className={`grid gap-3 ${people.total > 1 ? "md:grid-cols-2" : ""}`}>
+                {people.results.map((person) => (
+                  <li key={person.researcherId}>
+                    <PersonCard person={person} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <CountHeading className="font-sans text-body text-ink-2 mb-2">
             <span className="font-semibold text-ink num">{data.total.toLocaleString()}</span>{" "}
             {data.total === 1 ? "record" : "records"}
             {params.q ? (
@@ -186,9 +245,21 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
                 {" "}matching <span className="font-semibold text-ink">“{params.q}”</span>
               </>
             ) : null}
-          </h1>
+            {data.matchMode === "phrase" && (
+              <span className="ml-2 align-middle inline-flex px-2 py-0.5 rounded-full bg-active-bg text-active-ink text-tiny font-semibold whitespace-nowrap">
+                Exact phrase
+              </span>
+            )}
+          </CountHeading>
 
-          {people && people.total > 0 && (
+          {data.matchMode === "any" && data.total > 0 && (
+            <p className="flex items-start gap-2 text-small text-ink-2 bg-surface border border-line rounded-lg px-3 py-2 mb-4">
+              <Icon name="info" size={18} className="text-ink-3 mt-px" />
+              <span>No record has all of these words together. Showing records with any of them.</span>
+            </p>
+          )}
+
+          {!nameSearch && people && people.total > 0 && (
             <div className="mb-5">
               <div className="flex items-baseline justify-between gap-3 mb-2">
                 <h2 className="font-sans text-small font-semibold text-ink">People matching “{params.q}”</h2>
@@ -221,11 +292,12 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
 
           {data.results.length ? (
             <ul className="bg-surface border border-line rounded-xl px-5">
-              {data.results.map((p) => (
-                <AwardRow key={p.id} project={p} showSummary interestMatch={matchReason.get(p.id)} />
-              ))}
+              {data.results.map((p) => {
+                const m = interest.get(p.id);
+                return <AwardRow key={p.id} project={p} showSummary interestBand={m?.band} interestMatch={m && plainReasons(m.reasons)} />;
+              })}
             </ul>
-          ) : (
+          ) : nameSearch ? null : (
             <div className="bg-surface border border-line rounded-xl p-8 text-center">
               <p className="font-serif text-h3">Nothing matches that search</p>
               <p className="text-small text-ink-3 mt-1">Try fewer words, a broader topic, or clear the filters.</p>

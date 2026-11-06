@@ -48,7 +48,7 @@ export default async function AboutPage() {
     <main className="max-w-page mx-auto px-4 sm:px-6 pt-10 space-y-16">
       <header className="grid lg:grid-cols-[1.3fr_1fr] gap-10 items-center">
         <div>
-          <h1 className="text-h1">About ResearchConnect</h1>
+          <h1 className="text-[32px] leading-[40px] font-semibold tracking-[-0.015em] sm:text-h1">About ResearchConnect</h1>
           <p className="text-lead text-ink-2 mt-3">
             Temple&apos;s research is spread across many colleges and hard to see from outside your department.
             ResearchConnect puts it in one place: who works on what, linked to the original records.

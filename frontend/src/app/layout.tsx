@@ -14,14 +14,37 @@ export const metadata: Metadata = {
   description: "Explore federally funded research across Temple University, built from public NIH and NSF award records.",
 };
 
+// Every Material Symbols name the site renders, including names picked in code (`on ? "bookmark_added" : "bookmark"`).
+// The font is cut down to these, about 7 KB instead of 1.1 MB; an icon missing here renders as its name, so add new
+// ones to this list. display=block keeps the names invisible while the font loads instead of flashing them as words.
+const ICONS = [
+  "arrow_forward",
+  "arrow_upward",
+  "auto_awesome",
+  "bookmark",
+  "bookmark_added",
+  "check",
+  "chevron_right",
+  "close",
+  "description",
+  "group",
+  "info",
+  "menu",
+  "person",
+  "science",
+  "search",
+  "share",
+  "star",
+  "warning",
+];
+const ICON_FONT = `https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&icon_names=${[...ICONS].sort().join(",")}&display=block`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${serif.variable} ${sans.variable}`}>
       <head>
-        <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
-        />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link rel="stylesheet" href={ICON_FONT} />
       </head>
       <body className="min-h-screen flex flex-col">
         <a
