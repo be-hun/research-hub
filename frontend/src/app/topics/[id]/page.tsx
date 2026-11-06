@@ -84,21 +84,21 @@ export default async function TopicPage({ params }: { params: { id: string } }) 
               {t.byCollege
                 .filter((c) => c.funding === 0)
                 .map((c) => `${COLLEGES[c.college].short} (${c.trials + c.publications})`)
-                .join(", "                )}
-                {t.unassigned && (t.unassigned.awards > 0 || t.unassigned.funding > 0 || t.unassigned.trials > 0 || t.unassigned.publications > 0) && (
-                  <div className="mt-4 rounded-lg border border-line bg-canvas px-3 py-2 text-small text-ink-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <span>Not assigned to a college</span>
-                      <span className="num text-ink-3">{money(t.unassigned.funding)}</span>
-                    </div>
-                    <div className="text-tiny text-ink-3 mt-1">
-                      {count(t.unassigned.awards, "grant")} · {count(t.unassigned.trials, "trial")} · {count(t.unassigned.publications, "paper")}
-                    </div>
-                  </div>
-                )}
-                <p className="text-tiny text-ink-3 mt-3">A record with researchers in two colleges counts in both.</p>
+                .join(", ")}
             </p>
           )}
+          {t.unassigned && (t.unassigned.awards > 0 || t.unassigned.funding > 0 || t.unassigned.trials > 0 || t.unassigned.publications > 0) && (
+            <div className="mt-4 rounded-lg border border-line bg-canvas px-3 py-2 text-small text-ink-2">
+              <div className="flex items-center justify-between gap-3">
+                <span>Not assigned to a college</span>
+                <span className="num text-ink-3">{money(t.unassigned.funding)}</span>
+              </div>
+              <div className="text-tiny text-ink-3 mt-1">
+                {count(t.unassigned.awards, "grant")} · {count(t.unassigned.trials, "trial")} · {count(t.unassigned.publications, "paper")}
+              </div>
+            </div>
+          )}
+          <p className="text-tiny text-ink-3 mt-3">A record with researchers in two colleges counts in both.</p>
         </Section>
         <Section title="Grant funding over time" subtitle="Money obligated each year, by funder">
           <YearBars caption={`${t.topic.name}: funding by fiscal year`} data={trend.data} series={trend.series} />
