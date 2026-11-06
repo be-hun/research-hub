@@ -12,7 +12,8 @@ const DEMO_SUGGESTIONS = [
   "Who outside Engineering works on machine learning for health?",
 ];
 
-export default function AskPage() {
+export default function AskPage({ searchParams }: { searchParams: { q?: string | string[] } }) {
+  const shared = [searchParams.q].flat()[0]?.trim().slice(0, 1000) ?? "";
   const profile = demoProfileInput();
   return (
     <main className="max-w-3xl mx-auto px-4 sm:px-6 pt-10">
@@ -35,7 +36,7 @@ export default function AskPage() {
           </p>
         )}
       </header>
-      <AssistantChat profile={profile} suggestions={profile ? DEMO_SUGGESTIONS : undefined} />
+      <AssistantChat profile={profile} suggestions={profile ? DEMO_SUGGESTIONS : undefined} initialQuestion={shared} />
     </main>
   );
 }
