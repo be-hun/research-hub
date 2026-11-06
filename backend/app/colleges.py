@@ -93,6 +93,36 @@ NSF_DIRECTORATE_TO_COLLEGE = {
     # SBE, TIP and O/D span several colleges; those awards take the college of the PI's other awards.
 }
 
+# USAspending names the awarding sub-agency and the assistance listing (program), never a Temple unit or person, so
+# these awards can't take a college from their investigators. Map only programs whose Temple awards all sit in one
+# college (checked against data/raw/usaspending_from2022.json). Mixed portfolios stay unassigned: Army, Navy and Air
+# Force basic research, NIDILRR, Justice, State, the humanities and arts endowments, and the like. Matched in order,
+# case-insensitively, against "<sub-agency> | <program titles>"; first match wins. Every entry is APPROX: the map
+# names the college that runs that kind of work at Temple, not one named on the award.
+USASPENDING_TO_COLLEGE = [
+    ("military medical research and development", "medicine"),  # APPROX: DoD medical research; a few are rehab or behavioral
+    ("dentistry", "medicine"),  # APPROX: no dentistry CollegeId (HRSA dental training)
+    ("dental reimbursement", "medicine"),  # APPROX: no dentistry CollegeId (Ryan White dental program)
+    ("centers for international business education", "business"),  # APPROX: the Fox School's CIBER
+    ("education research, development and dissemination", "education"),  # APPROX: IES education research
+    ("special education", "education"),  # APPROX
+    ("teacher quality partnership", "education"),  # APPROX
+    ("english language acquisition", "education"),  # APPROX
+    ("improvement of postsecondary education", "education"),  # APPROX: teacher preparation (FIPSE)
+    ("developmental disabilit", "education"),  # APPROX: Institute on Disabilities (a UCEDD) in Education
+    ("acl assistive technology", "education"),  # APPROX: Institute on Disabilities' assistive technology program
+    ("office of science financial assistance", "science-tech"),  # APPROX: DOE Office of Science physics and chemistry
+    ("national aeronautics and space administration", "science-tech"),  # APPROX: NASA science
+    ("animal and plant health inspection service", "science-tech"),  # APPROX: spotted lanternfly ecology and models
+    ("national oceanic and atmospheric administration", "science-tech"),  # APPROX: ocean and climate science
+]
+
+
+def college_for_usaspending(sub_agency: str | None, programs: list[str]) -> str | None:
+    """CollegeId for a USAspending award from its sub-agency and program titles, or None when they are ambiguous."""
+    text = " | ".join([sub_agency or "", *programs]).lower()
+    return next((college for phrase, college in USASPENDING_TO_COLLEGE if phrase in text), None)
+
 
 def college_for(org_type: str | None, department: str | None) -> str | None:
     """Return a CollegeId, or None when NIH gives nothing to map (e.g. university-wide awards)."""

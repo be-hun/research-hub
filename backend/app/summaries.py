@@ -11,6 +11,8 @@ import json
 import os
 import re
 import threading
+import argparse
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from app import ai, models
@@ -24,6 +26,7 @@ MAX_RECORDS = 12
 MAX_POINTS = 3
 PROMPT_VERSION = "1"  # bump when SYSTEM or the record selection changes, so cached summaries are rewritten
 ENABLED = os.environ.get("AI_SUMMARIES", "on").lower() not in ("off", "0", "false")
+CACHED_ONLY = os.environ.get("AI_SUMMARIES", "on").lower() == "cached"
 
 SYSTEM = """You write short summaries for a directory of research at Temple University, using only the numbered \
 records in the user message. Each record is a grant, a clinical trial or a funded publication.
@@ -145,6 +148,8 @@ def summarize(conn: Connection, kind: str, ref_id: str) -> models.AISummary | No
                           (kind, ref_id)).fetchone()
     if cached and cached["version"] == version:
         return models.AISummary.model_validate(cached["payload"])
+    if CACHED_ONLY:
+        return _unavailable(kind, ref_id, citations, "Summary is not ready yet.")
 
     with _locks_guard:
         lock = _locks.setdefault((kind, ref_id), threading.Lock())
@@ -186,3 +191,54 @@ def summarize(conn: Connection, kind: str, ref_id: str) -> models.AISummary | No
             (kind, ref_id, version, json.dumps(reply.model_dump()), datetime.now(timezone.utc).isoformat()),
         )
         return reply
+
+
+def _subjects(conn: Connection, kinds: list[str], minimum: int) -> list[tuple[str, str]]:
+    out = []
+    for kind in kinds:
+        refs = []
+        if kind == "researcher":
+            refs = [(r["id"], "researcher") for r in conn.execute(
+                "SELECT r.id FROM researchers r WHERE (SELECT COUNT(*) FROM project_team t WHERE t.researcher_id = r.id) >= ?",
+                (minimum,))]
+        elif kind == "college":
+            refs = [(r["college"], "college") for r in conn.execute(
+                "SELECT c.college FROM project_colleges c GROUP BY c.college HAVING COUNT(DISTINCT c.project_id) >= ?",
+                (minimum,))]
+        elif kind == "topic":
+            refs = [(r.id, "topic") for r in BY_ID.values() if conn.execute(
+                "SELECT COUNT(DISTINCT project_id) FROM project_topics WHERE topic_id = ?", (r.id,)).fetchone()[0] >= minimum]
+        for ref, subject_kind in refs:
+            out.append((subject_kind, ref))
+    return out
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Generate cached AI summaries.")
+    parser.add_argument("--kinds", default="topic,college,researcher")
+    parser.add_argument("--min-records", type=int, default=2)
+    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+    from app.db import connect
+    conn = connect()
+    ensure_table(conn)
+    subjects = _subjects(conn, args.kinds.split(","), args.min_records)
+    print(f"{len(subjects)} summaries; rough cost ${len(subjects) * 0.015:.2f}")
+    if args.dry_run:
+        return
+
+    def write(item):
+        kind, ref = item
+        own = connect()
+        try:
+            summarize(own, kind, ref)
+        finally:
+            own.close()
+
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        list(pool.map(write, subjects))
+
+
+if __name__ == "__main__":
+    main()

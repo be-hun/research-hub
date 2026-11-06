@@ -87,7 +87,8 @@ KEYWORDS: dict[str, str] = {
     "chemistry-materials": r"chemi\w*|catalys\w*|polymer\w*|materials?|crystal\w*|spectroscop\w*",
     "engineering": r"engineer\w*|robot\w*|batter(y|ies)|energy storage|sensors?|manufactur\w*|biomechan\w*",
     "computing-ai": r"machine learning|deep learning|artificial intelligence|\bai\b|neural networks?|algorithm\w*|"
-                    r"comput\w*|software|data science|cybersecurity",
+                    r"computer science|computing|computer vision|computational biology|computational model(?:ing)?|"
+                    r"high-performance computing|software|data science|cybersecurity",
     "math-physics": r"mathemat\w*|statistic\w*|physics|quantum|particle|astrophys\w*|cosmolog\w*|optical",
     "earth-environment": r"climate|ocean\w*|geolog\w*|environmental|polar|arctic|antarctic|watershed|sediment\w*",
     "stem-education": r"education\w*|teaching|teachers?|students?|curricul\w*|\bstem\b(?! cells?)",
@@ -101,6 +102,11 @@ def topics_from_text(title: str, terms: str, limit: int = 2) -> list[str]:
     scores = {}
     for topic, pattern in _KEYWORD_PATTERNS.items():
         score = 3 * len(pattern.findall(title or "")) + len(pattern.findall(terms or ""))
+        if topic == "computing-ai" and re.search(r"\bcomputational model(?:ing)?\b", title or "", re.IGNORECASE):
+            context = f"{title} {terms}"
+            if not re.search(r"\b(computer|computing|algorithm|software|data|simulation|high-performance)\w*\b",
+                             context, re.IGNORECASE):
+                score -= 3 * len(re.findall(r"\bcomputational model(?:ing)?\b", title, re.IGNORECASE))
         if score >= 2:
             scores[topic] = score
     return [t for t, _ in sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:limit]]
