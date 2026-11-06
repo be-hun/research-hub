@@ -5,77 +5,9 @@ import Icon from "./Icon";
 import SaveButton from "./SaveButton";
 import ShareButton from "./ShareButton";
 import { CollegeTag } from "./Tags";
-import { reasonChips, SCORE_PARTS, type ReasonChip as Chip } from "@/lib/matchReasons";
-
-function ReasonChips({ chips }: { chips: Chip[] }) {
-  const shown = chips.filter((c) => c.kind !== "source");
-  if (!shown.length) return null;
-  return (
-    <ul className="flex flex-wrap gap-1.5 mt-2" aria-label="Why this matches">
-      {shown.map((c) => (
-        <li
-          key={c.key}
-          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-tiny font-medium ${
-            c.kind === "topic" ? "bg-cherry-tint text-cherry-dark" : "bg-canvas border border-line text-ink-2"
-          }`}
-        >
-          {c.kind === "keyword" && <span className="text-ink-3">Your interest:</span>}
-          {c.label}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-// ---------- the score ----------
-
-/**
- * The score with its recipe one click away. The parts mirror `_score` in backend/app/compatibility.py; only the
- * parts that applied to this match are listed, each with the most it can add.
- */
-function Score({ value, chips }: { value: number; chips: Chip[] }) {
-  const topics = chips.filter((c) => c.kind === "topic");
-  const keywords = chips.filter((c) => c.kind === "keyword");
-  const source = chips.find((c) => c.kind === "source");
-  return (
-    <details className="relative shrink-0">
-      <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-tiny font-semibold text-cherry num hover:bg-cherry-tint">
-        {value}/100 match
-        <Icon name="info" size={14} />
-        <span className="sr-only">. How this score is built</span>
-      </summary>
-      <div className="absolute right-0 z-20 mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-line bg-surface p-3 shadow-card text-tiny text-ink-2">
-        <p className="font-semibold text-ink mb-1.5">How this score is built</p>
-        <ul className="space-y-1">
-          {topics.length > 0 && (
-            <li>
-              <span className="text-ink font-medium">Shared topics</span> ({SCORE_PARTS.topics}): {topics.map((t) => t.label).join("; ")}
-              {source && <span className="text-ink-3"> · {source.label}</span>}
-            </li>
-          )}
-          {keywords.length > 0 && (
-            <li>
-              <span className="text-ink font-medium">Shared interests</span> ({SCORE_PARTS.keywords}): {keywords.map((k) => k.label).join(", ")}
-            </li>
-          )}
-          {chips.some((c) => c.key === "c:same") && (
-            <li>
-              <span className="text-ink font-medium">Same college</span> ({SCORE_PARTS.sameCollege})
-            </li>
-          )}
-          {chips.some((c) => c.key === "c:other") && (
-            <li>
-              <span className="text-ink font-medium">Different college</span> ({SCORE_PARTS.otherCollege})
-            </li>
-          )}
-        </ul>
-        <p className="mt-2 text-ink-3">
-          Counted from topics and whole-phrase interests in public records; a shared college alone never counts, and scores under {SCORE_PARTS.minimum} aren&apos;t shown. It measures overlap, not quality or fit. No AI is involved.
-        </p>
-      </div>
-    </details>
-  );
-}
+import MatchBadge from "./profile/MatchBadge";
+import ReasonChips from "./profile/ReasonChips";
+import { reasonChips } from "@/lib/matchReasons";
 
 // ---------- cards ----------
 
@@ -98,7 +30,7 @@ function RecordMatch({ match }: { match: CompatibilityMatch }) {
   return (
     <li className="border-b border-line last:border-b-0 pb-3">
       <div className="pt-3 -mb-2 flex justify-end">
-        <Score value={match.score} chips={chips} />
+        <MatchBadge band={match.band} score={match.score} chips={chips} />
       </div>
       <ul>
         <AwardRow project={p} stacked />
@@ -114,7 +46,7 @@ function RecordMatch({ match }: { match: CompatibilityMatch }) {
   );
 }
 
-function PersonMatch({ person }: { person: CollaboratorMatch }) {
+function PersonMatch({ person, total }: { person: CollaboratorMatch; total: number }) {
   // The backend compares the person's own college with yours, so the college chip is already consistent.
   const chips = reasonChips(person.reasons);
   return (
@@ -130,11 +62,15 @@ function PersonMatch({ person }: { person: CollaboratorMatch }) {
           >
             {person.name}
           </Link>
-          <Score value={person.score} chips={chips} />
+          <MatchBadge band={person.band} score={person.score} chips={chips} rank={person.rank} total={total} />
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-ink-3">
           <CollegeTag id={person.college} />
           {person.title && <span className="break-words">{person.title}</span>}
+          <span className="text-tiny font-semibold text-ink-2 num">
+            #{person.rank.toLocaleString()}
+            {total > 0 && <span className="font-normal text-ink-3"> of {total.toLocaleString()}</span>}
+          </span>
         </div>
         <ReasonChips chips={chips} />
         {person.citations.length > 0 && (
@@ -156,8 +92,8 @@ function PersonMatch({ person }: { person: CollaboratorMatch }) {
 
 /**
  * Recruiting trials, active grants and possible collaborators for the demo account, from POST /api/for-you.
- * Scores are computed from stored records; the model is not involved. `terms` are the profile's interest keywords,
- * used only to show a multi-word interest ("down syndrome") as one chip.
+ * Every match leads with its overlap band; the points behind it are one click away. Scores are computed from stored
+ * records; the model is not involved.
  */
 export default function ForYou({
   data,
@@ -172,9 +108,9 @@ export default function ForYou({
       <p className="flex items-start gap-2 text-small text-ink-2 bg-surface border border-line rounded-lg px-3 py-2">
         <Icon name="info" size={18} className="text-ink-3 mt-0.5 shrink-0" />
         <span>
-          <strong className="text-ink font-semibold">A discovery aid, not a recommendation.</strong> Match scores count
-          shared topics, keywords and colleges in public records. An active grant shows funding, not that a study is
-          recruiting, and trial status comes from ClinicalTrials.gov and may be out of date.
+          <strong className="text-ink font-semibold">A discovery aid, not a recommendation.</strong> Matches count
+          shared topics and keywords in public records. An active grant shows funding, not that a study is recruiting,
+          and trial status comes from ClinicalTrials.gov and may be out of date.
         </span>
       </p>
       <div className={`grid gap-6 ${limit ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
@@ -190,10 +126,17 @@ export default function ForYou({
         </Column>
         <Column title="People to connect with" empty="No researchers share your interests yet.">
           {take(data.collaborators).map((p) => (
-            <PersonMatch key={p.researcherId} person={p} />
+            <PersonMatch key={p.researcherId} person={p} total={data.collaboratorTotal} />
           ))}
         </Column>
       </div>
+      {data.collaboratorTotal > data.collaborators.length && (
+        <p className="text-small">
+          <Link href="/account/people" className="font-semibold text-cherry hover:underline underline-offset-2">
+            See all {data.collaboratorTotal.toLocaleString()} researchers who share your interests →
+          </Link>
+        </p>
+      )}
     </div>
   );
 }
