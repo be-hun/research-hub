@@ -119,7 +119,8 @@ def test_funded_under_the_same_program_is_a_clear_boost():
     assert [r["person"]["researcherId"] for r in ranked] == ["r-nih-2", "r-nih-1"]
     boosted, plain = ranked
     assert boosted["awardedUnderProgram"] is True and plain["awardedUnderProgram"] is False
-    assert boosted["reasons"][0] == "Funded under the same program (93.393)"
+    assert "Funded under the same program (93.393)" in boosted["reasons"]
+    assert "Funded under the same program (93.393)" not in plain["reasons"]
     assert boosted["projectIds"][0] == "nih-R01CA000002"
     data = opportunity_matches._data(app.state.db)
     call = opportunity_matches._calls(app.state.db, data, [{"id": "gg-1", "updated_at": "2026-11-01T00:00:00"}])["gg-1"]
@@ -133,7 +134,7 @@ def test_the_program_alone_lists_a_researcher_with_no_shared_words():
     add_program(app.state.db, "nih-R01CA000001", "93.866")
     add_call(app.state.db, id="gg-2", title="Cancer informatics", alns=("93.866",))
     [match] = people(client, "gg-2")
-    assert match["band"] == "Good overlap"
+    assert match["band"] == "Some overlap"
     assert match["reasons"] == ["Funded under the same program (93.866)"]
 
 

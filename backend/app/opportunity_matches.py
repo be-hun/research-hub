@@ -36,8 +36,11 @@ NOTICE = ("People whose public grants, trials or publications overlap this call'
 RESEARCHER_LIMIT = 12
 OPPORTUNITY_LIMIT = 8
 PROJECT_ID_LIMIT = 8
-# Funded under the same assistance listing counts as much as one funder-defined shared topic: Good overlap alone.
-PROGRAM_POINTS = 24
+# Funded under one of the call's assistance listings: half a funder-defined shared topic, enough to list someone on
+# its own (Some overlap). Not more, because an NIH listing is usually a whole institute's portfolio (93.866 is all of
+# NIA), which the call's institute topic already counts: a shared program and topic make Good overlap, and Strong
+# takes shared words as well.
+PROGRAM_POINTS = 12
 CALL_TOPICS = 2  # topics read from a call's text, besides the institute in its number
 # How sure a call is of a topic: its institute or its title names it, or only its description does ("machine
 # learning" in a cancer call's methods paragraph doesn't make it a computing call).
@@ -76,14 +79,22 @@ BOILERPLATE = {normalize(w) for w in """
     towards type types understand understanding unique various via way ways well whether wide without
     acquisition advanced analyze analyzing continuum disseminate dissemination era fundamental integrate
     integrating interpretation particular plan plans solicit solicits transform transformative transforms
+    actionable after allowed basic because before creation expand groundbreaking ics impede intend intends
+    not optional participating then there utilization vast where cutting edge landscape timely vivo vitro
+    addition building compelling disciplines driving edu effort government initial intended involve involves
+    made make practices professionals progressed researcher researchers resource resources stage track user
+    users advancement enhancement reason reasons
 """.split()}
-# NIH call numbers name the institute: RFA-CA-27-019 is NCI's. Two-letter codes to the funder areas topics use.
+# NIH call numbers name the institute: RFA-CA-27-019 is NCI's, and so are the forecasts FOR-CA-25-086 and
+# FOR-RFA-CA-26-001 (PAR-25-221 names none). Two-letter codes to the funder areas topics use.
 NIH_INSTITUTES = {
     "CA": "nci", "AG": "nia", "DA": "nida", "AA": "niaaa", "MH": "nimh", "NS": "ninds", "DC": "nidcd", "EY": "nei",
     "HL": "nhlbi", "AI": "niaid", "HD": "nichd", "DK": "niddk", "AR": "niams", "DE": "nidcr", "MD": "nimhd",
     "NR": "ninr", "GM": "nigms", "HG": "nhgri", "EB": "nibib", "LM": "nlm", "ES": "niehs", "AT": "nccih",
 }
-_NIH_NUMBER = re.compile(r"^(?:RFA|PAR|PAS|PA|NOT|OTA)-([A-Z]{2})-\d", re.IGNORECASE)
+_NIH_NUMBER = re.compile(r"^(?:FOR-(?:(?:RFA|PAR|PAS|PA)-)?|(?:RFA|PAR|PAS|PA|NOT|OTA)-)([A-Z]{2})-\d", re.IGNORECASE)
+# NIH titles end with the activity code and clinical-trial rule, "(R01 Clinical Trial Optional)": not the topic.
+_NIH_SUFFIX = re.compile(r"\([^()]*clinical trials? (?:optional|required|not allowed)[^()]*\)", re.IGNORECASE)
 # Phrases never span a sentence, a clause or a list item ("imaging, cancer genomics" has no "imaging cancer").
 _SENTENCE = re.compile(r"[.,;:!?()\[\]{}\n•|/]+")
 
@@ -205,12 +216,13 @@ def _pair_ok(a: str, b: str) -> bool:
 def _call_terms(index: _Index, title: str, description: str) -> list[str]:
     """The call's distinctive words and phrases, as written: frequent in the call, present but uncommon at Temple.
 
-    A title mention counts three times. Outside a short description a term must come up at least twice, so a
-    passing example ("such as zebrafish") doesn't define the call. Ranked by mentions times rarity weight.
+    A title mention counts three times. Outside a short description a phrase must come up twice and a single
+    word three times (a title mention is enough), so a passing example ("such as zebrafish") doesn't define the
+    call. Ranked by mentions times rarity weight.
     """
     counts: Counter = Counter()
     written: dict[str, str] = {}
-    for weight, text in ((3, title), (1, description)):
+    for weight, text in ((3, _NIH_SUFFIX.sub(" ", title or "")), (1, description)):
         for segment in _SENTENCE.split(text or ""):
             words = _tokens(segment)
             for i, (raw, word) in enumerate(words):
@@ -223,10 +235,10 @@ def _call_terms(index: _Index, title: str, description: str) -> list[str]:
     short = len(_tokens(description or "")) < SHORT_CALL
     ranked = []
     for gram, n in counts.items():
-        if (n < 2 and not short) or len(written[gram]) > 40:
+        phrase = " " in gram
+        if (n < (2 if phrase else 3) and not short) or len(written[gram]) > 40:
             continue
         df = index.frequency(gram)
-        phrase = " " in gram
         if df == 0 or (index.size >= MIN_RECORDS_FOR_SHARE
                        and df / index.size > (MAX_PHRASE_SHARE if phrase else MAX_WORD_SHARE)):
             continue
@@ -331,10 +343,13 @@ def _records_phrase(data: _Data, ids: list[str]) -> str:
 
 
 def _reasons(data: _Data, fit: _Fit) -> tuple[list[str], list[str]]:
-    """Plain reasons from stored fields, strongest first, and the record ids behind them."""
+    """Plain reasons from stored fields, and the record ids behind them, program awards first.
+
+    The shared words come first: they say what the work has in common with the call, where an assistance listing
+    (often an institute's whole portfolio, like 93.866 for NIA) says only who funded it.
+    """
     reasons, ids = [], []
     if fit.program:
-        reasons.append(f"Funded under the same program ({', '.join(sorted(fit.program))})")
         ids += sorted({pid for pids in fit.program.values() for pid in pids},
                       key=lambda pid: (-data.years.get(pid, 0), pid))
     # The two shared terms on the most records (rarest first on ties), and the records that mention either.
@@ -344,6 +359,8 @@ def _reasons(data: _Data, fit: _Fit) -> tuple[list[str], list[str]]:
         mentioning = [pid for _, pid, _, terms in fit.scored if set(terms) & set(top)]
         verb = "mentions" if len(mentioning) == 1 else "mention"
         reasons.append(f"{_records_phrase(data, mentioning)} {verb} " + " and ".join(f"“{p}”" for p in top))
+    if fit.program:
+        reasons.append(f"Funded under the same program ({', '.join(sorted(fit.program))})")
     topics = sorted({t for _, _, shared, _ in fit.scored for t in shared})
     if topics:
         tagged = [pid for _, pid, shared, _ in fit.scored if shared]
