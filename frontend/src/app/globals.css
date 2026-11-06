@@ -28,3 +28,20 @@
   vertical-align: middle;
   line-height: 1;
 }
+
+/* Print / Save as PDF from Ask: only the conversation. The site header, footer and skip link are hidden here;
+   page-level controls (history, inputs, buttons) carry Tailwind's print:hidden. */
+@media print {
+  body > header,
+  body > footer,
+  body > a[href="#main"] {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  li,
+  section {
+    break-inside: avoid;
+  }
+}

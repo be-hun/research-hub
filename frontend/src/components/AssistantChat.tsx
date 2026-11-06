@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { API_URL } from "@/lib/api";
+import { clientId } from "@/lib/conversations";
 import { KIND_LABELS } from "@/lib/colleges";
 import { count, yearRange } from "@/lib/format";
 import type {
@@ -15,11 +16,12 @@ import type {
   Project,
 } from "@/lib/types";
 import AnswerActions from "./AnswerActions";
+import ExportMenu from "./ExportMenu";
 import Icon from "./Icon";
 import IntroDraftButton from "./IntroDraftButton";
 import { CollegeTag, KindTag, StatusChip } from "./Tags";
 
-interface Message {
+export interface Message {
   role: "user" | "assistant";
   text: string;
   reply?: AssistantReply;
@@ -131,7 +133,7 @@ function PersonCard({
           </div>
         </div>
         {totals.length > 0 && (
-          <span className="text-tiny text-ink-3 sm:text-right shrink-0 num">{totals.join(" · ")} at Temple</span>
+          <span className="text-tiny text-ink-3 sm:text-right max-w-full num">{totals.join(" · ")} at Temple</span>
         )}
       </div>
       {person.focus &&
@@ -157,7 +159,7 @@ function PersonCard({
         ))}
       </ul>
       {profile && person.researcherId && (
-        <div className="mt-3">
+        <div className="mt-3 print:hidden">
           <IntroDraftButton researcherId={person.researcherId} name={person.name} profile={profile} />
         </div>
       )}
@@ -219,9 +221,13 @@ function Answer({
           </ul>
         </section>
       )}
-      {reply.mode !== "none" && <AnswerActions reply={reply} question={question} signedIn={signedIn} />}
+      {reply.mode !== "none" && (
+        <div className="print:hidden">
+          <AnswerActions reply={reply} question={question} signedIn={signedIn} />
+        </div>
+      )}
       {reply.followUps.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 print:hidden">
           {reply.followUps.map((q) => (
             <button
               key={q}
@@ -290,14 +296,36 @@ export default function AssistantChat({
   profile = null,
   suggestions = SUGGESTIONS,
   initialQuestion = "",
+  initialMessages = [],
+  conversationId: savedId = null,
+  title = null,
+  onConversation,
+  toolbar,
 }: {
   /** Demo account: the signed-in profile's interests, sent so answers can lean toward them. */
   profile?: ProfileInput | null;
   suggestions?: string[];
   /** A shared /ask?q=... link: asked as soon as the page opens. */
   initialQuestion?: string;
+  /** A reopened saved conversation. The chat starts from these and continues it (remount with a key to switch). */
+  initialMessages?: Message[];
+  conversationId?: string | null;
+  /** The saved title, for exports. */
+  title?: string | null;
+  /** After each answer: the conversation id the server saved it under (null when it wasn't saved). */
+  onConversation?: (id: string | null) => void;
+  /** Controls shown at the left of the chat's header row, e.g. the History button. */
+  toolbar?: ReactNode;
 } = {}) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const conversationRef = useRef<string | null>(savedId);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [slow, setSlow] = useState(false);
@@ -321,12 +349,24 @@ export default function AssistantChat({
     setBusy(true);
     let reply: Message;
     try {
-      const res = await fetch(`${API_URL}/api/assistant`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history(next), ...(profile ? { profile } : {}) } satisfies AssistantRequest),
-      });
+      const ask = () =>
+        fetch(`${API_URL}/api/assistant`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Client-Id": clientId(!!profile) },
+          body: JSON.stringify({
+            messages: history(next),
+            conversationId: conversationRef.current,
+            ...(profile ? { profile } : {}),
+          } satisfies AssistantRequest),
+        });
+      let res = await ask();
+      if (res.status === 404 && conversationRef.current) {
+        // The saved chat is gone (deleted elsewhere): answer anyway, saving it as a new chat.
+        conversationRef.current = null;
+        res = await ask();
+      }
       const body = await res.json().catch(() => ({}));
+      if (res.ok && typeof body?.conversationId === "string") conversationRef.current = body.conversationId;
       // A 422 carries a list of validation errors in `detail`; only a plain sentence is fit to show.
       reply =
         res.ok && typeof body?.summary === "string"
@@ -335,8 +375,11 @@ export default function AssistantChat({
     } catch {
       reply = { role: "assistant", text: FAILED, error: true };
     }
+    // A chat closed while it was waiting (New chat, another conversation) doesn't report back.
+    if (!mounted.current) return;
     setMessages([...next, reply]);
     setBusy(false);
+    onConversation?.(conversationRef.current);
   }
 
   useEffect(() => {
@@ -355,6 +398,10 @@ export default function AssistantChat({
 
   return (
     <div className="flex flex-col gap-5">
+      <div className="flex items-center justify-between gap-2 print:hidden">
+        <div className="flex items-center gap-2 min-w-0">{toolbar}</div>
+        <ExportMenu messages={messages} title={title} conversationId={conversationRef.current} />
+      </div>
       <div className="min-h-[300px] space-y-6" aria-live="polite">
         {messages.length === 0 && (
           <div className="space-y-2">
@@ -420,7 +467,7 @@ export default function AssistantChat({
           e.preventDefault();
           send(input);
         }}
-        className="bg-surface border border-line-strong rounded-xl p-2 flex items-end gap-2 focus-within:border-cherry shadow-card"
+        className="bg-surface border border-line-strong rounded-xl p-2 flex items-end gap-2 focus-within:border-cherry shadow-card print:hidden"
       >
         <label htmlFor="ask" className="sr-only">
           Your question
