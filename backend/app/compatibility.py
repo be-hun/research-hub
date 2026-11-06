@@ -1,15 +1,22 @@
 """Deterministic compatibility matches for active research.
 
-Scores are database-derived. The model is intentionally not involved: shared topics and
-stored subject terms are explainable evidence, not a claim that two people should work
-together.
+Scores are database-derived. The model is intentionally not involved: shared topics and stored subject terms are
+explainable evidence, not a claim that two people should work together.
+
+Every endpoint (researcher compatibility, For you, the demo profile, the match endpoints and the people list) scores
+a record with the same `_score`, against one in-memory corpus of normalized record text built per data version.
+A person's score is the score of their best-matching record, wherever it is shown.
 """
 
+import math
+import re
+import threading
+import unicodedata
 from collections import Counter, defaultdict
 
 from app import models
-from app.db import Connection, Row
-from app.queries import PARENT_ONLY, _projects, _tokens
+from app.db import Connection
+from app.queries import PARENT_ONLY, STOPWORDS, _distinctive_terms, _projects
 from app.topics import BY_ID
 
 MATCH_LIMIT = 6
@@ -25,134 +32,221 @@ DEMO_TERMS = (
     "alzheimer", "down syndrome",
 )
 
-
-def _topic_evidence(conn: Connection, project_ids: list[str]) -> dict[str, Counter]:
-    """For each topic on these records, how many records carry it by each tagging method."""
-    if not project_ids:
-        return {}
-    marks = ",".join("?" * len(project_ids))
-    evidence: dict[str, Counter] = {}
-    for row in conn.execute(
-        f"SELECT topic_id, method FROM project_topics WHERE project_id IN ({marks})", project_ids
-    ):
-        evidence.setdefault(row["topic_id"], Counter())[row["method"]] += 1
-    return evidence
-
-
-def _evidence_strength(methods: Counter) -> float:
-    """Two funder-tagged records make a topic certain; a keyword-tagged record counts for 0.6 of one."""
-    return min(1.0, sum(count * (1.0 if method == "funder" else 0.6) for method, count in methods.items()) / 2)
-
-
-def _terms(conn: Connection, project_ids: list[str]) -> set[str]:
-    if not project_ids:
-        return set()
-    marks = ",".join("?" * len(project_ids))
-    rows = conn.execute(f"SELECT title, abstract, terms FROM projects WHERE id IN ({marks})", project_ids)
-    words: set[str] = set()
-    for row in rows:
-        words.update(_tokens(" ".join((row["title"] or "", row["abstract"] or "", row["terms"] or ""))))
-    return words
+# Words too common in research text to count as a shared interest on their own. Inside a phrase they still count:
+# "gene therapy" matches as a phrase, "therapy" alone does not.
+GENERIC = STOPWORDS | {
+    "analysis", "approach", "based", "care", "cell", "cells", "center", "clinical", "data", "development",
+    "disease", "diseases", "effect", "effects", "health", "human", "learning", "method", "methods", "model",
+    "models", "new", "outcome", "outcomes", "patient", "patients", "program", "role", "syndrome", "system",
+    "systems", "therapy", "treatment", "trial", "use", "university", "process", "molecular", "improved",
+    "improve", "novel", "mechanism", "function", "factor", "level", "high", "low", "risk", "response",
+    "target", "potential", "technology", "measure", "test", "testing", "goal", "aim", "award", "grant",
+}
+# A word or phrase found in more than this share of records says little about a shared field.
+MAX_WORD_SHARE = 0.08
+MAX_PHRASE_SHARE = 0.2
+MIN_RECORDS_FOR_SHARE = 50  # below this, every word looks common; the share test only applies to real data
+TOPIC_POINTS, TOPIC_CAP = 24, 60
+TERM_MIN, TERM_MAX, TERM_CAP = 2.0, 8.0, 32
+PHRASE_BONUS = 1.5
+SAME_COLLEGE, OTHER_COLLEGE = 8, 5
 
 
-def _project_data(conn: Connection, rows: list[Row], *, rarity: bool = False) -> dict[str, dict]:
-    """Topics (with how each was tagged), colleges and terms per record.
+# ---------- text ----------
 
-    rarity=True is for a pool of candidate records: each term is then weighted by how few records in the pool
-    contain it, since a word found in most active records is weak evidence. Small, hand-picked sets (one
-    researcher's records, ids from the client) keep the flat per-term weight.
+def _singular(word: str) -> str:
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us", "is")):
+        return word[:-1]
+    return word
+
+
+def normalize(text: str) -> str:
+    """Lowercase words without accents or punctuation, plurals folded, so "Sensors," matches "sensor"."""
+    plain = "".join(c for c in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(c))
+    return " ".join(_singular(w) for w in re.findall(r"[a-z0-9]+", plain.replace("'", "").replace("\u2019", "")))
+
+
+# ---------- the corpus ----------
+
+class _Corpus:
+    """Normalized text, topics (with how each was tagged) and colleges for every record, and phrase rarity."""
+
+    def __init__(self, conn: Connection):
+        self.text: dict[str, str] = {}
+        for row in conn.execute("SELECT id, title, abstract, terms FROM projects"):
+            self.text[row["id"]] = f" {normalize(' '.join((row['title'] or '', row['abstract'] or '', row['terms'] or '')))} "
+        self.topics: dict[str, dict[str, set[str]]] = defaultdict(dict)
+        for row in conn.execute("SELECT project_id, topic_id, method FROM project_topics"):
+            self.topics[row["project_id"]].setdefault(row["topic_id"], set()).add(row["method"])
+        self.colleges: dict[str, set[str]] = defaultdict(set)
+        for row in conn.execute("SELECT project_id, college FROM project_colleges"):
+            self.colleges[row["project_id"]].add(row["college"])
+        self.size = max(1, len(self.text))
+        self._frequency: dict[str, int] = {}
+        self._lock = threading.Lock()
+
+    def frequency(self, phrase: str) -> int:
+        """How many records contain the phrase, across the whole database."""
+        with self._lock:
+            if phrase not in self._frequency:
+                needle = f" {phrase} "
+                self._frequency[phrase] = sum(needle in text for text in self.text.values())
+            return self._frequency[phrase]
+
+    def weight(self, phrase: str) -> float:
+        """2 for a phrase in nearly every record up to 8 for one in a single record (log-scaled rarity)."""
+        share = math.log(self.size / max(1, self.frequency(phrase))) / math.log(max(2, self.size))
+        return TERM_MIN + (TERM_MAX - TERM_MIN) * max(0.0, min(1.0, share))
+
+
+_corpus_lock = threading.Lock()
+_corpus_cache: dict[tuple, _Corpus] = {}
+
+
+def corpus(conn: Connection) -> _Corpus:
+    """The corpus for the current data. Rebuilt when the records change (count or latest update) or the schema does."""
+    key = tuple(conn.execute("SELECT current_schema(), COUNT(*), MAX(updated_at) FROM projects").fetchone())
+    with _corpus_lock:
+        if key in _corpus_cache:
+            return _corpus_cache[key]
+    built = _Corpus(conn)
+    with _corpus_lock:
+        _corpus_cache.clear()  # one data version at a time
+        _corpus_cache[key] = built
+    return built
+
+
+# ---------- the profile ----------
+
+class _Profile:
+    """A profile's topics and the interest phrases worth matching on."""
+
+    def __init__(self, profile: models.ProfileInput, data: _Corpus, topic_strength: dict[str, float] | None = None):
+        self.college = profile.college
+        self.topics = set(profile.topics)
+        self.topic_strength = topic_strength or {}
+        self.phrases: dict[str, str] = {}  # normalized -> as the person wrote it
+        for term in profile.terms:
+            phrase = normalize(term)
+            if not phrase or (" " not in phrase and (phrase in GENERIC or len(phrase) < 3)):
+                continue
+            limit = MAX_PHRASE_SHARE if " " in phrase else MAX_WORD_SHARE
+            if data.size >= MIN_RECORDS_FOR_SHARE and data.frequency(phrase) / data.size > limit:
+                continue
+            self.phrases.setdefault(phrase, term.strip())
+
+
+# ---------- scoring ----------
+
+class _Score:
+    def __init__(self, points: int, topics: set[str], phrases: list[str], funder: bool, college: str | None):
+        self.points = points
+        self.topics = topics
+        self.phrases = phrases  # as the person wrote them
+        self.funder = funder  # a shared topic is backed by funder-defined data, not only keywords
+        self.college = college  # "same" | "other" | None
+
+
+def _score(pid: str, data: _Corpus, profile: _Profile, *, person_college: str | None = None) -> _Score | None:
+    """Score one record against a profile, or None when it isn't a match.
+
+    Topics: up to 24 each, scaled by the profile's evidence for the topic (1.0 for topics a person chose) and by how
+    the record was tagged (funder data 1.0, keywords 0.6); 60 at most. Interests: 2 to 8 each by rarity
+    across the whole database, 1.5 times that for a multi-word phrase; 32 at most. A record needs a shared topic, a shared multi-word phrase or two shared
+    phrases: a college link alone never matches. College: +8 for the same college, and for people, +5 for a
+    different one (to widen the circle). Totals below MIN_MATCH_SCORE are not matches.
+    When person_college is given (a researcher being scored), the person's college is compared, not the record's.
     """
-    ids = [row["id"] for row in rows]
-    if not ids:
-        return {}
-    marks = ",".join("?" * len(ids))
-    topics: dict[str, dict[str, set[str]]] = defaultdict(dict)
-    for row in conn.execute(
-        f"SELECT project_id, topic_id, method FROM project_topics WHERE project_id IN ({marks})", ids
-    ):
-        topics[row["project_id"]].setdefault(row["topic_id"], set()).add(row["method"])
-    colleges = defaultdict(set)
-    for row in conn.execute(
-        f"SELECT project_id, college FROM project_colleges WHERE project_id IN ({marks})", ids
-    ):
-        colleges[row["project_id"]].add(row["college"])
-    terms = {
-        row["id"]: set(_tokens(" ".join((row["title"] or "", row["abstract"] or "", row["terms"] or ""))))
-        for row in rows
-    }
-    frequency: Counter | None = None
-    if rarity:
-        frequency = Counter()
-        for words in terms.values():
-            frequency.update(words)
-    return {
-        row["id"]: {
-            "row": row,
-            "topics": set(topics[row["id"]]),
-            "topic_methods": topics[row["id"]],
-            "colleges": colleges[row["id"]],
-            "terms": terms[row["id"]],
-            "term_frequency": frequency,
-        }
-        for row in rows
-    }
-
-
-def _profile_terms(profile: models.ProfileInput) -> set[str]:
-    return set(_tokens(" ".join(profile.terms)))
-
-
-def _score(
-    data: dict,
-    profile: models.ProfileInput,
-    *,
-    outside_boost: bool = False,
-    topic_strength: dict[str, float] | None = None,
-) -> tuple[int, set[str], set[str], list[str]]:
-    """Score one record against a profile.
-
-    A topic is worth up to 24: scaled by how well the profile's evidence supports it (`topic_strength`, 1.0 for
-    topics a person chose) and by how the record was tagged (funder data 1.0, keywords 0.6). Topics add at most 60.
-    Terms add at most 32, rarer terms more (see _project_data). A college link alone is never a match: a record
-    needs a shared topic or two shared terms, and the total must reach MIN_MATCH_SCORE.
-    """
-    shared_topics = set(profile.topics) & data["topics"]
-    shared_terms = _profile_terms(profile) & data["terms"]
-    if not shared_topics and len(shared_terms) < 2:
-        return 0, shared_topics, shared_terms, []
-    methods = data["topic_methods"]
-    topic_score = sum(
-        24 * (topic_strength or {}).get(t, 1.0) * (1.0 if "funder" in methods[t] else 0.6)
+    methods = data.topics.get(pid, {})
+    shared_topics = profile.topics & set(methods)
+    text = data.text.get(pid, "")
+    shared = [p for p in profile.phrases if f" {p} " in text]
+    if not shared_topics and not any(" " in p for p in shared) and len(shared) < 2:
+        return None
+    topic_points = sum(
+        TOPIC_POINTS * profile.topic_strength.get(t, 1.0) * (1.0 if "funder" in methods[t] else 0.6)
         for t in shared_topics
     )
-    frequency = data.get("term_frequency")
-    if frequency is not None:
-        term_score = sum(min(8.0, 12 / max(1, frequency[t])) for t in shared_terms)
-    else:
-        term_score = 5.0 * len(shared_terms)
-    score = min(60.0, topic_score) + min(32.0, term_score)
-    if profile.college and profile.college in data["colleges"]:
-        score += 8
-    if outside_boost and profile.college and data.get("college") and data["college"] != profile.college:
-        score += 5
-    score = round(score)
-    if score < MIN_MATCH_SCORE:
-        return 0, shared_topics, shared_terms, []
+    # A multi-word phrase ("down syndrome") is more specific evidence than one word, so it counts 1.5 times.
+    term_points = sum(data.weight(p) * (PHRASE_BONUS if " " in p else 1.0) for p in shared)
+    points = min(TOPIC_CAP, topic_points) + min(TERM_CAP, term_points)
+    college = None
+    if profile.college:
+        if person_college is not None:
+            college = "same" if person_college == profile.college else "other"
+        elif profile.college in data.colleges.get(pid, ()):
+            college = "same"
+    points += SAME_COLLEGE if college == "same" else OTHER_COLLEGE if college == "other" else 0
+    points = min(100, round(points))
+    if points < MIN_MATCH_SCORE:
+        return None
+    return _Score(
+        points,
+        shared_topics,
+        sorted(profile.phrases[p] for p in shared),
+        any("funder" in methods[t] for t in shared_topics),
+        college,
+    )
+
+
+def _reasons(topics: set[str], phrases: list[str], funder: bool, college: str | None) -> list[str]:
+    """Plain, deduplicated reasons. The wording is parsed by frontend/src/lib/matchReasons.ts; change both together."""
     reasons = []
-    labels = [BY_ID[t].name for t in sorted(shared_topics) if t in BY_ID]
+    labels = [BY_ID[t].name for t in sorted(topics) if t in BY_ID]
     if labels:
         reasons.append("Shares " + ", ".join(labels))
-        if any("funder" in methods[t] for t in shared_topics):
-            reasons.append("Supported by funder-defined topic data")
-        elif any("keywords" in methods[t] for t in shared_topics):
-            reasons.append("Supported by stored keyword topic data")
-    if shared_terms:
-        reasons.append("Shares stored terms: " + ", ".join(sorted(shared_terms)[:3]))
-    if profile.college and profile.college in data["colleges"]:
+        reasons.append("Supported by funder-defined topic data" if funder else "Supported by stored keyword topic data")
+    if phrases:
+        reasons.append("Shares stored terms: " + ", ".join(sorted(dict.fromkeys(phrases))[:4]))
+    if college == "same":
         reasons.append("Linked to the same college")
-    if outside_boost and profile.college and data.get("college") and data["college"] != profile.college:
+    elif college == "other":
         reasons.append("Expands beyond your college")
-    return min(score, 100), shared_topics, shared_terms, reasons
+    return reasons
+
+
+def _topic_refs(topics: set[str]) -> list[models.TopicRef]:
+    return [models.TopicRef(id=t, name=BY_ID[t].name) for t in sorted(topics) if t in BY_ID]
+
+
+def _ranked_records(data: _Corpus, profile: _Profile, ids: list[str]) -> list[tuple[_Score, str]]:
+    scored = [(s, pid) for pid in ids if (s := _score(pid, data, profile))]
+    return scored
+
+
+def _record_matches(conn: Connection, scored: list[tuple[_Score, str]], limit: int) -> list[models.CompatibilityMatch]:
+    """Full records for the best matches only, so a request never loads every abstract."""
+    if not scored:
+        return []
+    ids = [pid for _, pid in scored]
+    rows = {r["id"]: r for r in conn.execute(f"SELECT * FROM projects WHERE id IN ({','.join('?' * len(ids))})", ids)}
+    scored.sort(key=lambda item: (-item[0].points, -rows[item[1]]["latest_fy"], item[1]))
+    best = scored[:limit]
+    projects = _projects(conn, [rows[pid] for _, pid in best])
+    return [
+        models.CompatibilityMatch(
+            project=project,
+            score=s.points,
+            reasons=_reasons(s.topics, s.phrases, s.funder, s.college),
+            sharedTopics=_topic_refs(s.topics),
+        )
+        for (s, _), project in zip(best, projects)
+    ]
+
+
+def _active_ids(conn: Connection, kinds: tuple[str, ...], trial_statuses: tuple[str, ...] | None = None) -> list[str]:
+    params: list[str] = list(kinds)
+    status_clause = ""
+    if trial_statuses:
+        status_clause = f" AND (p.kind != 'trial' OR p.status_label IN ({','.join('?' * len(trial_statuses))}))"
+        params.extend(trial_statuses)
+    return [r["id"] for r in conn.execute(f"""
+        SELECT p.id FROM projects p
+        WHERE p.kind IN ({','.join('?' * len(kinds))}) AND p.is_active = 1 {status_clause} AND {PARENT_ONLY}
+        ORDER BY p.id
+    """, params)]
 
 
 def _matches(
@@ -166,50 +260,37 @@ def _matches(
     trial_statuses: tuple[str, ...] | None = None,
     topic_strength: dict[str, float] | None = None,
 ) -> models.ResearcherCompatibility:
-    marks = ",".join("?" * len(kinds))
-    params: list[str] = list(kinds)
-    status_clause = ""
-    if trial_statuses:
-        status_marks = ",".join("?" * len(trial_statuses))
-        status_clause = f" AND (p.kind != 'trial' OR p.status_label IN ({status_marks}))"
-        params.extend(trial_statuses)
-    rows = conn.execute(f"""
-        SELECT p.* FROM projects p
-        WHERE p.kind IN ({marks}) AND p.is_active = 1 {status_clause} AND {PARENT_ONLY}
-        ORDER BY p.latest_fy DESC, p.start_year DESC, p.id
-    """, params).fetchall()
-    data = _project_data(conn, rows, rarity=True)
-    existing = {
-        r["project_id"] for r in conn.execute(
-            "SELECT project_id FROM project_team WHERE researcher_id = ?", (researcher_id,)
-        )
-    } if not synthetic else set()
-    candidates = []
-    for row in rows:
-        if row["id"] in existing:
-            continue
-        score, shared_topics, _, reasons = _score(data[row["id"]], profile, topic_strength=topic_strength)
-        if not score:
-            continue
-        candidates.append((score, row, shared_topics, reasons))
-    candidates.sort(key=lambda item: (-item[0], -item[1]["latest_fy"], item[1]["id"]))
-    matches = []
-    for score, row, shared_topics, reasons in candidates[:MATCH_LIMIT]:
-        matches.append(models.CompatibilityMatch(
-            project=_projects(conn, [row])[0],
-            score=min(score, 100),
-            reasons=reasons,
-            sharedTopics=[
-                models.TopicRef(id=t, name=BY_ID[t].name)
-                for t in sorted(shared_topics) if t in BY_ID
-            ],
-        ))
+    data = corpus(conn)
+    existing = set() if synthetic else {
+        r["project_id"] for r in conn.execute("SELECT project_id FROM project_team WHERE researcher_id = ?", (researcher_id,))
+    }
+    ids = [pid for pid in _active_ids(conn, kinds, trial_statuses) if pid not in existing]
+    scored = _ranked_records(data, _Profile(profile, data, topic_strength), ids)
     return models.ResearcherCompatibility(
         researcherId=researcher_id,
         researcherName=name,
         isSynthetic=synthetic,
-        matches=matches,
+        matches=_record_matches(conn, scored, MATCH_LIMIT),
     )
+
+
+# ---------- topic evidence for a real researcher ----------
+
+def _topic_evidence(conn: Connection, project_ids: list[str]) -> dict[str, Counter]:
+    """For each topic on these records, how many records carry it by each tagging method."""
+    if not project_ids:
+        return {}
+    evidence: dict[str, Counter] = {}
+    for row in conn.execute(
+        f"SELECT topic_id, method FROM project_topics WHERE project_id IN ({','.join('?' * len(project_ids))})", project_ids
+    ):
+        evidence.setdefault(row["topic_id"], Counter())[row["method"]] += 1
+    return evidence
+
+
+def _evidence_strength(methods: Counter) -> float:
+    """Two funder-tagged records make a topic certain; a keyword-tagged record counts for 0.6 of one."""
+    return min(1.0, sum(count * (1.0 if method == "funder" else 0.6) for method, count in methods.items()) / 2)
 
 
 def for_researcher(conn: Connection, researcher_id: str) -> models.ResearcherCompatibility | None:
@@ -222,10 +303,10 @@ def for_researcher(conn: Connection, researcher_id: str) -> models.ResearcherCom
     evidence = _topic_evidence(conn, project_ids)
     profile = models.ProfileInput(
         college=row["college"],
-        # Most frequent topics first; terms alphabetically. Both used to follow set/row order, which changed
-        # between processes (Python randomizes set order per process) and between databases.
+        # Most frequent topics first; ties alphabetical, so the order never depends on row or set order.
         topics=[t for t, _ in sorted(evidence.items(), key=lambda kv: (-sum(kv[1].values()), kv[0]))][:8],
-        terms=sorted(_terms(conn, project_ids))[:12],
+        # The researcher's distinctive stored subject terms (frequent in their records, rare across Temple).
+        terms=[t for t in _distinctive_terms(conn, project_ids, limit=24) if len(t) <= 40][:12],
     )
     return _matches(
         conn,
@@ -260,108 +341,115 @@ def demo_profile(conn: Connection) -> models.DemoResearcherProfile:
     )
 
 
-def _profile_match(
-    conn: Connection, profile: models.ProfileInput, project_ids: list[str], limit: int = MATCH_LIMIT
-) -> models.ResearcherMatch:
-    if not project_ids:
-        return models.ResearcherMatch(score=0, reasons=[], sharedTopics=[], records=[])
-    marks = ",".join("?" * len(project_ids))
-    rows = conn.execute(f"SELECT * FROM projects WHERE id IN ({marks})", project_ids).fetchall()
-    data = _project_data(conn, rows)
-    ranked = []
-    for row in rows:
-        score, topics, _, reasons = _score(data[row["id"]], profile)
-        if score:
-            ranked.append((score, row, topics, reasons))
-    ranked.sort(key=lambda item: (-item[0], -item[1]["latest_fy"], item[1]["id"]))
-    chosen = ranked[:limit]
-    return models.ResearcherMatch(
-        score=min(sum(item[0] for item in chosen), 100),
-        reasons=list(dict.fromkeys(reason for _, _, _, reasons in chosen for reason in reasons)),
-        sharedTopics=[
-            models.TopicRef(id=topic, name=BY_ID[topic].name)
-            for topic in sorted({topic for _, _, topics, _ in chosen for topic in topics} & set(BY_ID))
-        ],
-        records=_projects(conn, [row for _, row, _, _ in chosen]),
-    )
+# ---------- people ----------
+
+class _Person:
+    """A researcher's best record score plus the evidence across all their matching records."""
+
+    def __init__(self):
+        self.points = 0
+        self.topics: set[str] = set()
+        self.phrases: list[str] = []
+        self.funder = False
+        self.college: str | None = None
+        self.records: list[tuple[int, str]] = []
+
+    def add(self, pid: str, s: _Score) -> None:
+        self.points = max(self.points, s.points)
+        self.topics |= s.topics
+        self.phrases += s.phrases
+        self.funder = self.funder or s.funder
+        self.college = s.college  # the person's own college, the same on every record
+        self.records.append((s.points, pid))
+
+    def reasons(self) -> list[str]:
+        return _reasons(self.topics, self.phrases, self.funder, self.college)
+
+
+def _person(data: _Corpus, profile: _Profile, college: str | None, project_ids: list[str]) -> _Person:
+    person = _Person()
+    for pid in project_ids:
+        if s := _score(pid, data, profile, person_college=college):
+            person.add(pid, s)
+    person.records.sort(key=lambda r: (-r[0], r[1]))
+    return person
 
 
 def match_researcher(
-    conn: Connection, researcher_id: str, profile: models.ProfileInput
+    conn: Connection, researcher_id: str, profile: models.ProfileInput, limit: int = MATCH_LIMIT
 ) -> models.ResearcherMatch | None:
-    if not conn.execute("SELECT 1 FROM researchers WHERE id = ?", (researcher_id,)).fetchone():
+    """How a profile matches one researcher: the same score the people list gives them (their best record)."""
+    row = conn.execute("SELECT id, college FROM researchers WHERE id = ?", (researcher_id,)).fetchone()
+    if not row:
         return None
-    ids = [row["project_id"] for row in conn.execute(
-        "SELECT project_id FROM project_team WHERE researcher_id = ?", (researcher_id,)
+    ids = [r["project_id"] for r in conn.execute(
+        "SELECT project_id FROM project_team WHERE researcher_id = ? ORDER BY project_id", (researcher_id,)
     )]
-    return _profile_match(conn, profile, ids)
+    data = corpus(conn)
+    person = _person(data, _Profile(profile, data), row["college"], ids)
+    best = [pid for _, pid in person.records[:limit]]
+    rows = {r["id"]: r for r in conn.execute(
+        f"SELECT * FROM projects WHERE id IN ({','.join('?' * len(best))})", best
+    )} if best else {}
+    return models.ResearcherMatch(
+        score=person.points,
+        reasons=person.reasons() if person.points else [],
+        sharedTopics=_topic_refs(person.topics),
+        records=_projects(conn, [rows[pid] for pid in best if pid in rows]),
+    )
 
 
 def match_projects(conn: Connection, profile: models.ProfileInput, ids: list[str]) -> models.ProjectMatches:
     if not ids:
         return models.ProjectMatches(matches=[])
-    marks = ",".join("?" * len(ids))
-    rows = conn.execute(f"SELECT * FROM projects WHERE id IN ({marks})", ids).fetchall()
-    data = _project_data(conn, rows)
-    matches = []
-    for row in rows:
-        score, _, _, reasons = _score(data[row["id"]], profile)
-        if score:
-            matches.append(models.ProjectMatch(id=row["id"], score=score, reasons=reasons))
+    data = corpus(conn)
+    p = _Profile(profile, data)
+    matches = [
+        models.ProjectMatch(id=pid, score=s.points, reasons=_reasons(s.topics, s.phrases, s.funder, s.college))
+        for pid in dict.fromkeys(ids) if pid in data.text and (s := _score(pid, data, p))
+    ]
     matches.sort(key=lambda item: (-item.score, item.id))
     return models.ProjectMatches(matches=matches)
 
 
 def _collaborators(conn: Connection, profile: models.ProfileInput) -> list[models.CollaboratorMatch]:
-    rows = conn.execute(f"""
-        SELECT p.* FROM projects p
-        WHERE p.kind IN ('award', 'trial') AND p.is_active = 1 AND {PARENT_ONLY}
-        ORDER BY p.latest_fy DESC, p.start_year DESC, p.id
-    """).fetchall()
-    if not rows:
+    # People on an active grant or trial, or on a recent paper (publications are imported from 2024 on): someone who
+    # publishes on a topic is as worth contacting as someone funded for it, and Ask can name either.
+    ids = _active_ids(conn, ("award", "trial")) + [r["id"] for r in conn.execute(
+        f"SELECT p.id FROM projects p WHERE p.kind = 'publication' AND {PARENT_ONLY} ORDER BY p.id"
+    )]
+    if not ids:
         return []
-    data = _project_data(conn, rows, rarity=True)
-    ids = [row["id"] for row in rows]
-    marks = ",".join("?" * len(ids))
-    team = conn.execute(f"""
-        SELECT t.project_id, t.researcher_id
-        FROM project_team t
-        WHERE t.project_id IN ({marks}) AND t.researcher_id IS NOT NULL
-    """, ids).fetchall()
-    researcher_ids = sorted({row["researcher_id"] for row in team})
-    if not researcher_ids:
+    data = corpus(conn)
+    p = _Profile(profile, data)
+    # Each person is scored on all of their records: the same score match_researcher gives them on their own page.
+    team: dict[str, list[str]] = defaultdict(list)
+    for row in conn.execute(f"""
+        SELECT t.project_id, t.researcher_id FROM project_team t
+        WHERE t.researcher_id IN (
+            SELECT researcher_id FROM project_team
+            WHERE project_id IN ({','.join('?' * len(ids))}) AND researcher_id IS NOT NULL
+        )
+        ORDER BY t.researcher_id, t.project_id
+    """, ids):
+        team[row["researcher_id"]].append(row["project_id"])
+    if not team:
         return []
-    rmarks = ",".join("?" * len(researcher_ids))
+    researcher_ids = sorted(team)
     researchers = {
         row["id"]: row for row in conn.execute(
-            f"SELECT id, name, college, department FROM researchers WHERE id IN ({rmarks})", researcher_ids
+            f"SELECT id, name, college, department FROM researchers WHERE id IN ({','.join('?' * len(researcher_ids))})",
+            researcher_ids,
         )
     }
-    by_researcher: dict[str, list[Row]] = defaultdict(list)
-    for member in team:
-        if member["researcher_id"] in researchers:
-            by_researcher[member["researcher_id"]].append(member)
-
     ranked = []
-    for researcher_id, members in by_researcher.items():
-        researcher = researchers[researcher_id]
-        score = 0
-        reasons: list[str] = []
-        topics: set[str] = set()
-        citations: list[str] = []
-        for member in members:
-            project = data[member["project_id"]]
-            project_data = dict(project)
-            project_data["college"] = researcher["college"]
-            points, shared, _, evidence = _score(project_data, profile, outside_boost=True)
-            if points:
-                score = max(score, points)
-                topics.update(shared)
-                reasons.extend(evidence)
-                citations.append(member["project_id"])
-        if score:
-            ranked.append((score, researcher, list(dict.fromkeys(reasons)), sorted(set(citations)), topics))
-    ranked.sort(key=lambda item: (-item[0], item[1]["name"].lower(), item[1]["id"]))
+    for rid, project_ids in team.items():
+        if rid not in researchers:
+            continue
+        person = _person(data, p, researchers[rid]["college"], project_ids)
+        if person.points:
+            ranked.append((person, researchers[rid]))
+    ranked.sort(key=lambda item: (-item[0].points, item[1]["name"].lower(), item[1]["id"]))
     return [
         models.CollaboratorMatch(
             researcherId=researcher["id"],
@@ -369,12 +457,12 @@ def _collaborators(conn: Connection, profile: models.ProfileInput) -> list[model
             initials="".join(part[0] for part in researcher["name"].split()[:2]).upper(),
             college=researcher["college"],
             title=researcher["department"] or "Researcher",
-            score=score,
-            reasons=reasons,
-            citations=citations,
-            sharedTopics=[BY_ID[t].name for t in topics if t in BY_ID],
+            score=person.points,
+            reasons=person.reasons(),
+            citations=[pid for _, pid in person.records],  # best-matching record first
+            sharedTopics=[BY_ID[t].name for t in sorted(person.topics) if t in BY_ID],
         )
-        for score, researcher, reasons, citations, topics in ranked[:MATCH_LIMIT]
+        for person, researcher in ranked[:MATCH_LIMIT]
     ]
 
 

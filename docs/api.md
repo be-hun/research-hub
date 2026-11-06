@@ -84,6 +84,8 @@ define it, colleges, trend, top investigators, awards, related topics). 404 if u
 Returns `SearchResponse`: `{ query, interpretedAs, total, page, pageSize, results: Project[], facets }`.
 `facets` gives counts per college, funder, status and topic; each facet ignores its own filter, so the other values
 stay selectable. Each result may include `match: { reason, evidence[] }` naming which stored fields matched.
+With `q`, results containing the words as an exact phrase come first, then those containing all of the words,
+then the rest by relevance (title weighs most).
 
 ## `GET /api/projects/:id`
 
@@ -138,12 +140,24 @@ presented as a real Temple researcher.
 `ProfileInput` contains an optional college, up to 8 known topic ids and up to 12 terms (each 1–40 characters).
 `/api/for-you` returns up to six recruiting trials, active grants and deterministic collaborator matches. Scores,
 reasons and citations come from stored project topics, colleges, terms and team records; no model is called.
-These endpoints and `/api/demo-profile` use the same scoring as researcher compatibility: funder-defined topics
-and rarer shared terms weigh more, a record needs a shared topic or two shared terms, and a college link alone
-never produces a match.
+These endpoints, `/api/demo-profile` and the assistant's profile-based retrieval use one scoring function
+(`_score` in `backend/app/compatibility.py`):
 
-`POST /api/match/researcher/:id` returns up to six of that researcher's records that share profile topics or
-terms, or 404 for an unknown researcher. `POST /api/match/projects` accepts up to 50 project ids and returns
+- Topics: up to 24 each (60 total), less when the record's topic comes only from keywords.
+- Interests (`terms`) match as whole phrases ("machine learning" never matches "machine … learning"), 2 to 8 points
+  each by rarity across the whole database, 1.5× for a multi-word phrase (32 total). Generic words (disease, therapy,
+  learning, …) and words in more than 8% of records don't count on their own.
+- A record needs a shared topic, a shared multi-word phrase or two shared interests; a college link alone never
+  matches. Same college +8; for people, a different college +5. Scores under 12 are not returned.
+- A person's score is their best-matching record's score, the same in `collaborators` and in
+  `/api/match/researcher/:id`, and their college reason is their own college compared with the profile's.
+
+Reasons use fixed wording that `frontend/src/lib/matchReasons.ts` parses: `Shares <topics>`, `Supported by
+funder-defined topic data` / `Supported by stored keyword topic data`, `Shares stored terms: <phrases>`, `Linked to
+the same college`, `Expands beyond your college`.
+
+`POST /api/match/researcher/:id` returns that researcher's score and up to six of their records that share profile
+topics or terms, or 404 for an unknown researcher. `POST /api/match/projects` accepts up to 50 project ids and returns
 only positive matches; unknown ids are ignored.
 
 ## `GET /api/colleges` and `GET /api/colleges/:id`

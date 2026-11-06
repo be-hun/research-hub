@@ -81,7 +81,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
   const matches = profile
     ? await matchProjects(profile, data.results.map((p) => p.id)).catch(() => ({ matches: [] }))
     : { matches: [] };
-  const matchReason = new Map(matches.matches.map((m) => [m.id, plainReasons(m.reasons, profile?.terms)]));
+  const matchReason = new Map(matches.matches.map((m) => [m.id, plainReasons(m.reasons)]));
   const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
   const filtered = [params.colleges, params.funders, params.status, params.topics, params.kinds, params.funding].some((v) => v?.length);
   const pageHref = (page: number) => `/search?${searchQueryString({ ...params, page })}`;

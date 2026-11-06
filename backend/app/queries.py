@@ -31,8 +31,12 @@ FIELD_LABELS = {"title": "title", "abstract": "abstract", "terms": "subject term
 # Then ts_rank, higher is better, with weights per schema.sql and normalization 1 (divide by log length) so a long
 # abstract that repeats a word doesn't outrank a title about it. Checked against the SQLite bm25 top 10.
 FTS_FROM = ("projects_fts f JOIN projects p ON p.id = f.project_id "
-            "CROSS JOIN to_tsquery('english', ?) AS query CROSS JOIN to_tsquery('english', ?) AS all_words")
-FTS_RANK = "f.document @@ all_words DESC, ts_rank('{0.1, 0.2, 0.3, 1.0}', f.document, query, 1) DESC"
+            "CROSS JOIN to_tsquery('english', ?) AS query CROSS JOIN to_tsquery('english', ?) AS all_words "
+            "CROSS JOIN phraseto_tsquery('english', ?) AS phrase")
+# The words as a phrase first ("supply chain", not a paper that says "supply" and "chain"), then all of them, then
+# relevance.
+FTS_RANK = ("f.document @@ phrase DESC, f.document @@ all_words DESC, "
+            "ts_rank('{0.1, 0.2, 0.3, 1.0}', f.document, query, 1) DESC")
 
 
 def _marks(values: list) -> str:
@@ -265,8 +269,8 @@ def _tokens(text: str) -> list[str]:
 
 
 def _fts_params(tokens: list[str]) -> list[str]:
-    """Any of the words, then all of them, as Postgres tsqueries. Tokens are [a-z0-9]+ only: nothing to escape."""
-    return [" | ".join(tokens), " & ".join(tokens)]
+    """Any of the words, all of them, and the phrase, as Postgres tsqueries. Tokens are [a-z0-9]+ only: nothing to escape."""
+    return [" | ".join(tokens), " & ".join(tokens), " ".join(tokens)]
 
 
 def _match(row: Row, tokens: list[str]) -> models.Match | None:

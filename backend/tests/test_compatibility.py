@@ -102,3 +102,63 @@ def test_compatibility_does_not_recommend_a_college_match_without_domain_evidenc
 
     assert response.status_code == 200
     assert all(match["project"]["id"] != "nih-R01OTHER" for match in response.json()["matches"])
+
+
+def _two_grants_client():
+    """The base record plus a grant that says "machine learning" and "sensor array" as phrases, and one that only
+    has the same words apart."""
+    phrases = record(
+        appl_id=2, core_project_num="R01EB000002", project_title="Sensor array decoding with machine learning",
+        abstract_text="Machine learning methods for a sensor array.", phr_text="", pref_terms="Sensor Array",
+        principal_investigators=[{"profile_id": 20, "first_name": "ANA", "middle_name": "", "last_name": "LOPEZ",
+                                  "is_contact_pi": True}],
+        project_detail_url="https://reporter.nih.gov/project-details/2",
+    )
+    apart = record(
+        appl_id=3, core_project_num="R01EB000003", project_title="A learning curve for every machine",
+        abstract_text="We array each sensor by hand; the machine keeps learning.", phr_text="", pref_terms="Teaching",
+        principal_investigators=[{"profile_id": 30, "first_name": "BEN", "middle_name": "", "last_name": "OKAFOR",
+                                  "is_contact_pi": True}],
+        project_detail_url="https://reporter.nih.gov/project-details/3",
+    )
+    app = create_app()
+    load(app.state.db, merge([normalize([record(), phrases, apart])]))
+    return TestClient(app)
+
+
+def test_interests_match_as_whole_phrases_not_scattered_words():
+    loaded = body = _two_grants_client().post(
+        "/api/for-you", json={"terms": ["machine learning", "sensor array"]}
+    ).json()
+    ids = [m["project"]["id"] for m in body["grants"]]
+    assert "nih-R01EB000002" in ids
+    assert "nih-R01EB000003" not in ids
+    reasons = next(m["reasons"] for m in loaded["grants"] if m["project"]["id"] == "nih-R01EB000002")
+    assert "Shares stored terms: machine learning, sensor array" in reasons
+
+
+def test_generic_words_alone_never_match():
+    body = _two_grants_client().post("/api/for-you", json={"terms": ["disease", "therapy", "learning"]}).json()
+    assert body["grants"] == [] and body["trials"] == [] and body["collaborators"] == []
+
+
+def test_a_person_gets_the_same_score_in_the_people_list_and_on_their_page():
+    client = _two_grants_client()
+    profile = {"college": "medicine", "topics": ["aging"], "terms": ["down syndrome"]}
+    people = client.post("/api/for-you", json=profile).json()["collaborators"]
+    assert people
+    for person in people:
+        own = client.post(f"/api/match/researcher/{person['researcherId']}", json=profile).json()
+        assert own["score"] == person["score"]
+        assert not ("Linked to the same college" in person["reasons"] and "Expands beyond your college" in person["reasons"])
+
+
+def test_authors_of_recent_papers_are_people_to_connect_with():
+    from ingest import openalex
+    from tests.test_new_sources import OPENALEX_FUNDERS, work
+
+    app = create_app()
+    papers = openalex.normalize({"works": [work()], "funders": OPENALEX_FUNDERS})
+    load(app.state.db, merge([normalize([record()]), papers]))
+    body = TestClient(app).post("/api/for-you", json={"terms": ["cancer cell metabolism", "mice"]}).json()
+    assert "Ana Lopez" in [person["name"] for person in body["collaborators"]]

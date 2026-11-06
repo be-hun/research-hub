@@ -7,7 +7,7 @@ Everything shown about a record or person besides the model's one-line takeaway 
 import json
 import re
 
-from app import ai, models, queries
+from app import ai, compatibility, models, queries
 from app.db import Connection, Row
 from ingest.text import name_key
 
@@ -61,16 +61,17 @@ def _retrieve(
 ) -> list[Row]:
     """Search with the latest user turn, plus the one before it so short follow-ups keep their topic."""
     user_turns = [m.text for m in messages if m.role == "user"][-2:]
-    searches = [queries.search(conn, " ".join(user_turns))]
-    if profile:
-        if profile.terms:
-            searches.append(queries.search(conn, " ".join(profile.terms)))
-        if profile.topics:
-            searches.append(queries.search(conn, "", topics=profile.topics))
+    searches = [queries.search(conn, " ".join(user_turns)).results]
+    if profile and (profile.terms or profile.topics):
+        # The profile's records come from the same scoring as For you, so Ask and For you suggest the same work
+        # and the same people (each suggested collaborator's best record is on the list).
+        picks = compatibility.for_you(conn, profile)
+        cited = [person.citations[0] for person in picks.collaborators if person.citations]
+        searches.append([m.project for m in picks.grants + picks.trials] + queries.projects_by_ids(conn, cited))
     hits = []
     seen = set()
     for search in searches:
-        for hit in search.results:
+        for hit in search:
             if hit.id not in seen:
                 seen.add(hit.id)
                 hits.append(hit)

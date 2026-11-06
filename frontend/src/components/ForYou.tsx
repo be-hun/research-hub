@@ -1,14 +1,14 @@
 import Link from "next/link";
-import type { CollaboratorMatch, CollegeId, CompatibilityMatch, ForYou as ForYouData } from "@/lib/types";
+import type { CollaboratorMatch, CompatibilityMatch, ForYou as ForYouData } from "@/lib/types";
 import AwardRow from "./AwardRow";
 import Icon from "./Icon";
 import SaveButton from "./SaveButton";
 import ShareButton from "./ShareButton";
 import { CollegeTag } from "./Tags";
-import { reasonChips, type ReasonChip as Chip } from "@/lib/matchReasons";
+import { reasonChips, SCORE_PARTS, type ReasonChip as Chip } from "@/lib/matchReasons";
 
 function ReasonChips({ chips }: { chips: Chip[] }) {
-  const shown = chips.filter((c) => c.kind !== "fragment");
+  const shown = chips.filter((c) => c.kind !== "source");
   if (!shown.length) return null;
   return (
     <ul className="flex flex-wrap gap-1.5 mt-2" aria-label="Why this matches">
@@ -35,7 +35,8 @@ function ReasonChips({ chips }: { chips: Chip[] }) {
  */
 function Score({ value, chips }: { value: number; chips: Chip[] }) {
   const topics = chips.filter((c) => c.kind === "topic");
-  const keywords = chips.filter((c) => c.kind === "keyword" || c.kind === "fragment");
+  const keywords = chips.filter((c) => c.kind === "keyword");
+  const source = chips.find((c) => c.kind === "source");
   return (
     <details className="relative shrink-0">
       <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-tiny font-semibold text-cherry num hover:bg-cherry-tint">
@@ -48,27 +49,28 @@ function Score({ value, chips }: { value: number; chips: Chip[] }) {
         <ul className="space-y-1">
           {topics.length > 0 && (
             <li>
-              <span className="text-ink font-medium">Shared topics</span> (up to 60): {topics.map((t) => t.label).join("; ")}
+              <span className="text-ink font-medium">Shared topics</span> ({SCORE_PARTS.topics}): {topics.map((t) => t.label).join("; ")}
+              {source && <span className="text-ink-3"> · {source.label}</span>}
             </li>
           )}
           {keywords.length > 0 && (
             <li>
-              <span className="text-ink font-medium">Shared keywords</span> (up to 25): {keywords.map((k) => k.label).join(", ")}
+              <span className="text-ink font-medium">Shared interests</span> ({SCORE_PARTS.keywords}): {keywords.map((k) => k.label).join(", ")}
             </li>
           )}
           {chips.some((c) => c.key === "c:same") && (
             <li>
-              <span className="text-ink font-medium">Same college</span> (+10)
+              <span className="text-ink font-medium">Same college</span> ({SCORE_PARTS.sameCollege})
             </li>
           )}
           {chips.some((c) => c.key === "c:other") && (
             <li>
-              <span className="text-ink font-medium">Different college</span> (+5 for people outside yours)
+              <span className="text-ink font-medium">Different college</span> ({SCORE_PARTS.otherCollege})
             </li>
           )}
         </ul>
         <p className="mt-2 text-ink-3">
-          Counted from topics and words in public records. It measures overlap, not quality or fit. No AI is involved.
+          Counted from topics and whole-phrase interests in public records; a shared college alone never counts, and scores under {SCORE_PARTS.minimum} aren&apos;t shown. It measures overlap, not quality or fit. No AI is involved.
         </p>
       </div>
     </details>
@@ -90,9 +92,9 @@ function Column({ title, empty, children }: { title: string; empty: string; chil
   );
 }
 
-function RecordMatch({ match, terms }: { match: CompatibilityMatch; terms?: string[] }) {
+function RecordMatch({ match }: { match: CompatibilityMatch }) {
   const p = match.project;
-  const chips = reasonChips(match.reasons, terms);
+  const chips = reasonChips(match.reasons);
   return (
     <li className="border-b border-line last:border-b-0 pb-3">
       <div className="pt-3 -mb-2 flex justify-end">
@@ -112,17 +114,9 @@ function RecordMatch({ match, terms }: { match: CompatibilityMatch; terms?: stri
   );
 }
 
-function PersonMatch({ person, terms, college }: { person: CollaboratorMatch; terms?: string[]; college?: CollegeId | null }) {
-  // The backend merges reasons from all of a person's records, so it can say both "same college" and "beyond your
-  // college". The person's own college is what a reader means by it, so use that instead.
-  const chips = reasonChips(person.reasons, terms).filter((c) => c.kind !== "college");
-  if (college && person.college) {
-    chips.push(
-      person.college === college
-        ? { key: "c:same", label: "Your college", kind: "college" }
-        : { key: "c:other", label: "Another college", kind: "college" },
-    );
-  }
+function PersonMatch({ person }: { person: CollaboratorMatch }) {
+  // The backend compares the person's own college with yours, so the college chip is already consistent.
+  const chips = reasonChips(person.reasons);
   return (
     <li className="py-4 border-b border-line last:border-b-0 flex gap-3">
       <span className="w-10 h-10 rounded-full bg-cherry-tint text-cherry font-serif font-semibold text-small flex items-center justify-center shrink-0" aria-hidden="true">
@@ -168,13 +162,9 @@ function PersonMatch({ person, terms, college }: { person: CollaboratorMatch; te
 export default function ForYou({
   data,
   limit,
-  terms,
-  college,
 }: {
   data: ForYouData;
   limit?: number;
-  terms?: string[];
-  college?: CollegeId | null;
 }) {
   const take = <T,>(items: T[]) => (limit ? items.slice(0, limit) : items);
   return (
@@ -188,19 +178,19 @@ export default function ForYou({
         </span>
       </p>
       <div className={`grid gap-6 ${limit ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
-        <Column title="Recruiting trials" empty="No recruiting trials match your interests right now.">
+        <Column title="Recruiting trials" empty="No recruiting trial shares your topics or interests right now. Trials linked to your college alone aren’t listed.">
           {take(data.trials).map((m) => (
-            <RecordMatch key={m.project.id} match={m} terms={terms} />
+            <RecordMatch key={m.project.id} match={m} />
           ))}
         </Column>
         <Column title="Active grants" empty="No active grants match your interests right now.">
           {take(data.grants).map((m) => (
-            <RecordMatch key={m.project.id} match={m} terms={terms} />
+            <RecordMatch key={m.project.id} match={m} />
           ))}
         </Column>
         <Column title="People to connect with" empty="No researchers share your interests yet.">
           {take(data.collaborators).map((p) => (
-            <PersonMatch key={p.researcherId} person={p} terms={terms} college={college} />
+            <PersonMatch key={p.researcherId} person={p} />
           ))}
         </Column>
       </div>
