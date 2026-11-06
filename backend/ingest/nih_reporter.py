@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import httpx
 
 from app.colleges import college_for
-from ingest.text import first_sentences, paragraphs, title_case
+from ingest.text import aln, first_sentences, paragraphs, title_case
 
 API_URL = "https://api.reporter.nih.gov/v2/projects/search"
 ORG_NAME = "TEMPLE UNIV OF THE COMMONWEALTH"
@@ -99,7 +99,7 @@ def normalize(records: list[dict]) -> dict:
     for (pid, _), record in unique.items():
         by_project[pid].append(record)
 
-    projects, award_years, team, colleges, project_areas = [], [], [], [], []
+    projects, award_years, team, colleges, project_areas, programs = [], [], [], [], [], []
     areas: dict[str, dict] = {}
     researchers: dict[str, dict] = {}
 
@@ -148,6 +148,10 @@ def normalize(records: list[dict]) -> dict:
                 "award_amount": r.get("award_amount"),
                 "admin_ic": (r.get("agency_ic_admin") or {}).get("abbreviation"),
             })
+
+        # Assistance listings: every one the award was funded under across its fiscal years (RePORTER gives no title).
+        for number in dict.fromkeys(filter(None, (aln(r.get("cfda_code")) for r in recs))):
+            programs.append({"project_id": pid, "aln": number, "title": ""})
 
         # Areas: every institute that administered or funded the award.
         ics = {(admin.get("abbreviation"), admin.get("name"))}
@@ -204,4 +208,5 @@ def normalize(records: list[dict]) -> dict:
         "project_team": team,
         "research_areas": list(areas.values()),
         "project_areas": project_areas,
+        "project_programs": programs,
     }

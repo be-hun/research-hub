@@ -142,8 +142,13 @@ def _retrieve(
     return record_rows(conn, [h.id for h in hits])
 
 
+def _plain(text: str) -> str:
+    """Drop possessive 's so "Alzheimer's" is one word, as queries.search does."""
+    return re.sub(r"['\u2019]s\b", "", text)
+
+
 def _question_profile(conn: Connection, profile: models.ProfileInput, question: str) -> models.ProfileInput:
-    words = re.findall(r"[a-z0-9]+", question.lower())
+    words = re.findall(r"[a-z0-9]+", _plain(question.lower()))
     phrases = [" ".join(words[i:i + 2]) for i in range(len(words) - 1)]
     topics = list(dict.fromkeys(profile.topics + topics_from_text(question, "", limit=3)))[:8]
     terms = list(dict.fromkeys(
@@ -166,7 +171,7 @@ def _retrieve_question(conn: Connection, question: str, profile: models.ProfileI
     college = next((value for label, value in COLLEGE_WORDS.items() if re.search(rf"\b{re.escape(label)}\b", lower)), None)
     excluded = next((value for label, value in COLLEGE_WORDS.items()
                      if re.search(rf"\b(?:outside|beyond|other than)\s+{re.escape(label)}\b", lower)), None)
-    tokens = [w for w in re.findall(r"[a-z0-9]+", lower) if w not in FILLER_WORDS and w not in INTENT_WORDS]
+    tokens = [w for w in re.findall(r"[a-z0-9]+", _plain(lower)) if w not in FILLER_WORDS and w not in INTENT_WORDS]
     query = " ".join(tokens)
     search = queries.search(conn, query, kinds=kinds, status=status)
     ids = [p.id for p in search.results]
@@ -185,14 +190,18 @@ def _retrieve_question(conn: Connection, question: str, profile: models.ProfileI
         picks = compatibility.for_you(conn, profile)
         picked_ids = [p.project.id for p in picks.grants + picks.trials]
         records = record_rows(conn, picked_ids[:MAX_RECORDS])
+    personal = bool(re.search(r"\b(?:my|me|i|our|we)\b", lower))
     if people_question and profile:
-        question_profile = _question_profile(conn, profile, question)
+        # The profile only steers who is suggested when the question is about the user ("who should I talk to");
+        # otherwise "Who studies Alzheimer's?" would return people matching the profile instead of the question.
+        base = profile if personal else models.ProfileInput()
+        question_profile = _question_profile(conn, base, question)
         collaborators = compatibility.for_you(conn, question_profile).collaborators
         cited = [pid for person in collaborators for pid in person.citations[:2]]
         if cited:
             extra = queries.projects_by_ids(conn, list(dict.fromkeys(cited)))
             records = record_rows(conn, list(dict.fromkeys([p.id for p in extra] + [r["id"] for r in records]))[:MAX_RECORDS])
-    elif profile and re.search(r"\b(?:my|me|i|our|we)\b", lower):
+    elif profile and personal:
         picks = compatibility.for_you(conn, profile)
         picked_ids = [p.project.id for p in picks.grants + picks.trials]
         records = record_rows(conn, list(dict.fromkeys(picked_ids + ids))[:MAX_RECORDS])

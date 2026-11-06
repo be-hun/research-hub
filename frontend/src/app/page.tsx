@@ -60,7 +60,7 @@ export default async function HomePage() {
 
         <div>
           <h2 className="font-serif text-h2 text-ink mb-4">Start exploring</h2>
-          <div className="grid sm:grid-cols-3 gap-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               {
                 href: "/search",
@@ -71,6 +71,11 @@ export default async function HomePage() {
                 href: "/researchers",
                 title: "Find researchers",
                 text: "Explore people and their research records.",
+              },
+              {
+                href: "/opportunities",
+                title: "Find funding",
+                text: "Search open federal funding calls from Grants.gov.",
               },
               {
                 href: "/ask",

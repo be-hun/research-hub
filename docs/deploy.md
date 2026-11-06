@@ -19,6 +19,7 @@ What lives only on the server, and is never committed:
 | Checkout | `/opt/research-hub` (clone of `be-hun/research-hub`) |
 | Backend | `research-hub-api.service` (FastAPI) |
 | Frontend | `research-hub-web.service` (Next.js) |
+| Funding-call refresh | `research-hub-opportunities.timer` (daily, 05:30 Eastern; units in `deploy/`) |
 | Reverse proxy | nginx, site `/etc/nginx/sites-enabled/research-hub` (serves `/api/` and the web app) |
 | Verified | 4 Nov 2026: HEAD `108125a` = `origin/main`, no local edits |
 
@@ -65,6 +66,37 @@ uv run python -m app.summaries --kinds topic,college,researcher --min-records 2 
 
 Set `AI_SUMMARIES=cached` in the service environment after the CLI completes. Requests then use current cached
 summaries and return unavailable rather than calling the model for anything still missing.
+
+## Daily funding-call refresh
+
+Grants.gov deadlines and calls change daily, so a systemd timer re-fetches only the funding calls
+(`uv run python -m ingest.grants_gov`, about 5 minutes). Award data is untouched. The unit files are committed in
+`deploy/`; the server links to them, so a deploy that changes them takes effect after `daemon-reload`.
+
+Install once, after the first deploy that contains `deploy/` and after one full online import
+(`uv run python -m ingest.run --no-backup` without `--offline`, which also caches `data/raw/grants_gov.json`):
+
+```bash
+ln -sf /opt/research-hub/deploy/research-hub-opportunities.service /etc/systemd/system/
+ln -sf /opt/research-hub/deploy/research-hub-opportunities.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now research-hub-opportunities.timer
+systemctl start research-hub-opportunities.service   # one run now, to check it works
+```
+
+Check it:
+
+```bash
+systemctl list-timers research-hub-opportunities.timer   # next and last run
+journalctl -u research-hub-opportunities.service -n 30    # the last run's counts, or why it stopped
+```
+
+If Grants.gov returns fewer than half as many calls as are stored, the run exits with an error and keeps the stored
+calls (`journalctl` says so). Run `uv run python -m ingest.grants_gov --force` by hand if the drop is real. The
+services run as the same user as `research-hub-api.service`; if that isn't root, add the same `User=` line to the
+`.service` file in a PR.
+
+After a deploy that changes the units: `systemctl daemon-reload`.
 
 ## Saved conversations
 

@@ -23,12 +23,17 @@ when the generated files are stale. This page adds what code can't say: behaviou
 | `GET` | `/api/topics/{topic_id}` | — | `TopicDetail` |
 | `GET` | `/api/projects/featured` | — | `Project[]` |
 | `GET` | `/api/projects/{project_id}` | — | `ProjectDetail` |
+| `GET` | `/api/projects/{project_id}/opportunities` | — | `Opportunity[]` |
 | `GET` | `/api/projects` | `ids` | `Project[]` |
 | `GET` | `/api/researchers` | `q`, `page`, `college` (repeatable), `kind`, `sort` | `PeopleResponse` |
 | `GET` | `/api/researchers/{researcher_id}` | — | `ResearcherProfile` |
 | `GET` | `/api/researchers/{researcher_id}/projects` | — | `ResearcherProject[]` |
 | `GET` | `/api/researchers/{researcher_id}/collaborators` | — | `ResearcherCollaborator[]` |
 | `GET` | `/api/researchers/{researcher_id}/compatibility` | — | `ResearcherCompatibility` |
+| `GET` | `/api/researchers/{researcher_id}/opportunities` | — | `ResearcherOpportunity[]` |
+| `GET` | `/api/opportunities` | `q`, `page`, `agency` (repeatable), `status` (repeatable), `category` (repeatable), `universities`, `closes_within`, `sort` | `OpportunitySearchResponse` |
+| `GET` | `/api/opportunities/{opportunity_id}` | — | `OpportunityDetail` |
+| `GET` | `/api/opportunities/{opportunity_id}/researchers` | — | `OpportunityResearchers` |
 | `GET` | `/api/demo-profile` | — | `DemoResearcherProfile` |
 | `POST` | `/api/for-you` | body: `ProfileInput` | `ForYou` |
 | `POST` | `/api/for-you/people` | `page`, body: `ProfileInput` | `PeopleMatches` |
@@ -307,6 +312,44 @@ that researcher, used by the "Draft an intro" button on Ask's person cards and t
 - `citations` lists the records the email mentions (all records considered when `available` is false), with ids and
   titles read from the database. Each call writes a fresh draft; nothing is cached or stored.
 - 404 for an unknown researcher, 422 for an invalid profile, 503 with `{ detail }` when the AI service is unavailable.
+
+## Funding opportunities (`/api/opportunities`)
+
+Federal funding calls (RFPs, notices of funding opportunity) from the Grants.gov API, refreshed by
+`ingest.run`. A call is an invitation to apply, not an award, and its dates can change: every call links to its
+Grants.gov page and carries `updatedAt`, the time it was fetched.
+
+- `GET /api/opportunities` returns `OpportunitySearchResponse`. `q` matches title, description, call number and
+  agency. Filters: `agency`, `status` (`posted`, `forecasted`, `closed`; none given means posted and forecasted),
+  `category`, `universities=true` (calls listing applicant type 06 or 20, higher education) and `closes_within`
+  (days). `sort` is `deadline` (default: soonest first, calls without a date last), `relevance` or `newest`.
+  `facets` count the current query and other filters, ignoring each facet's own filter.
+  - `q` is read by Postgres `websearch_to_tsquery` ("quoted phrases", `-excluded` words). A `q` equal to a call
+    number (`RFA-CA-27-019`) or an agency label (`NSF`), ignoring case, also matches; under `relevance` an exact
+    call number ranks first, then `ts_rank` (title above description above number, agency and categories).
+    `relevance` without `q` is deadline order. `newest` is `postedDate` descending, ties by title.
+  - A posted call whose `closeDate` is before today, or a forecasted call whose estimated `closeDate` is, is treated
+    as `closed` everywhere: it is hidden unless
+    `status=closed` is asked for, counted under `closed` in `facets.status`, and returned with `status: "closed"`.
+    `daysLeft` and every comparison with today use the database's `current_date`.
+  - `category` keeps calls listing any of the given categories; `closes_within=N` keeps calls whose `closeDate` is
+    today through N days from today (calls without a date drop out).
+  - Status facet labels: `posted` "Open", `forecasted` "Forecasted", `closed` "Closed". Agency and category facets
+    are labelled with their value.
+- `GET /api/opportunities/:id` returns `OpportunityDetail`: the synopsis and eligibility text verbatim, applicant
+  types, award range, contact, and `pastAwards`, Temple awards under the same assistance listing (ALN) numbers.
+  `description` is the stored synopsis split at blank lines. `pastAwardCount` and `pastAwards` count parent awards
+  only (an NIH center-grant component is part of its parent), newest fiscal year first, at most 10. 404 if unknown.
+- `GET /api/opportunities/:id/researchers` returns `OpportunityResearchers`: Temple researchers whose stored records
+  overlap the call, scored deterministically (no model call) and shown with `notice`. Overlap is a discovery aid,
+  not a recommendation or an eligibility check.
+- `GET /api/researchers/:id/opportunities` returns open calls that overlap a researcher's records, at most 8.
+- `GET /api/projects/:id/opportunities` returns open calls sharing an assistance listing with that award: posted
+  or forecasted with no passed deadline, soonest first, at most 6. A center-grant component also uses its parent
+  award's listings. 404 if the project is unknown.
+
+`universitiesEligible` comes from Grants.gov's applicant-type codes. The site never decides eligibility; the
+agency's own `eligibilityText` is shown as written.
 
 ## Data rules
 

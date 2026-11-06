@@ -9,6 +9,7 @@ export const NAV = [
   { href: "/ask", label: "Ask", highlight: true },
   { href: "/topics", label: "Topics" },
   { href: "/researchers", label: "People" },
+  { href: "/opportunities", label: "Funding" },
   { href: "/colleges", label: "Colleges" },
   { href: "/explore", label: "Data" },
   { href: "/about", label: "About" },
