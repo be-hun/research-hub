@@ -8,7 +8,7 @@ from datetime import datetime
 import httpx
 
 from app.colleges import NSF_DIRECTORATE_TO_COLLEGE
-from ingest.text import first_sentences, name_key, paragraphs, title_case
+from ingest.text import alns, first_sentences, name_key, paragraphs, title_case
 
 API_URL = "https://api.nsf.gov/services/v1/awards.json"
 AWARDEE = '"Temple University"'
@@ -19,7 +19,7 @@ VERIFICATION = "public-award-record"
 FIELDS = (
     "id,title,startDate,expDate,fundsObligatedAmt,fundsObligated,piFirstName,piLastName,piMiddeInitial,"
     "piId,coPDPI,dirAbbr,divAbbr,orgLongName,orgLongName2,fundProgramName,program,transType,"
-    "latestAmendmentDate,abstractText,activeAwd"
+    "latestAmendmentDate,abstractText,activeAwd,cfdaNumber"
 )
 BOILERPLATE = re.compile(r"This award reflects NSF's statutory mission.*$", re.DOTALL)
 OBLIGATION = re.compile(r"FY\s*(\d{4})\s*=\s*\$([\d,]+)")
@@ -110,7 +110,7 @@ def normalize(awards: list[dict]) -> dict:
         ids = ids_by_name.get(name_key(name), set())
         return next(iter(ids)) if len(ids) == 1 else "r-nsf-" + name_key(name).replace(" ", "-")
 
-    projects, award_years, team, colleges, project_areas = [], [], [], [], []
+    projects, award_years, team, colleges, project_areas, programs = [], [], [], [], [], []
     areas: dict[str, dict] = {}
     researchers: dict[str, dict] = {}
 
@@ -159,6 +159,9 @@ def normalize(awards: list[dict]) -> dict:
                 "admin_ic": div,
             })
 
+        # NSF gives the numbers only ("47.041, 47.049"), no program titles.
+        programs += [{"project_id": pid, "aln": number, "title": ""} for number in alns(a.get("cfdaNumber"))]
+
         if div and div_name:
             area_id = f"nsf-{div.lower()}"
             areas.setdefault(area_id, {
@@ -204,4 +207,5 @@ def normalize(awards: list[dict]) -> dict:
         "project_team": team,
         "research_areas": list(areas.values()),
         "project_areas": project_areas,
+        "project_programs": programs,
     }

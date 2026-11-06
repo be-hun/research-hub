@@ -9,7 +9,8 @@ from app.topics import AREA_TO_TOPIC, topics_from_text
 from ingest.text import name_key
 
 TABLES = ("projects", "award_years", "project_colleges", "project_funders", "researchers", "researcher_aliases",
-          "project_team", "research_areas", "project_areas", "project_topics")
+          "project_team", "research_areas", "project_areas", "project_topics", "project_programs")
+OPPORTUNITY_TABLES = ("opportunities", "opportunity_programs", "opportunity_applicant_types")
 # When the same person appears in several sources, keep the record from the first source listed.
 SOURCE_PRIORITY = ("nih-reporter", "nsf-awards", "clinicaltrials-gov", "openalex", "usaspending")
 # Sources whose college comes from a guess (funding directorate, trial site) rather than a named unit.
@@ -35,7 +36,8 @@ def _drop_duplicate_awards(data: dict) -> None:
     if dupes:
         for table in ("projects",):
             data[table] = [r for r in data[table] if r["id"] not in dupes]
-        for table in ("award_years", "project_funders", "project_colleges", "project_team", "project_areas"):
+        for table in ("award_years", "project_funders", "project_colleges", "project_team", "project_areas",
+                      "project_programs"):
             data[table] = [r for r in data[table] if r["project_id"] not in dupes]
 
 
@@ -95,6 +97,8 @@ def merge(datasets: list[dict]) -> dict:
     `same-name-across-sources` evidence and the profile is labeled low confidence.
     """
     data = {t: [row for d in datasets for row in d.get(t, [])] for t in TABLES}
+    # One row per award and ALN, even when a source lists the same number twice.
+    data["project_programs"] = list({(r["project_id"], r["aln"]): r for r in data["project_programs"]}.values())
     _fill_award_defaults(data)
     _drop_duplicate_awards(data)
 
@@ -234,7 +238,7 @@ def load(conn: Connection, data: dict) -> None:
         conn.execute("DELETE FROM researchers")
         conn.execute("DELETE FROM research_areas")
         for table in TABLES:
-            _insert(conn, table, data[table])
+            _insert(conn, table, data.get(table, []))
 
         people: dict[str, list[str]] = defaultdict(list)
         for member in data["project_team"]:
@@ -243,4 +247,18 @@ def load(conn: Connection, data: dict) -> None:
             "projects_fts", ["project_id", "title", "abstract", "terms", "people"],
             ([p["id"], *(search_text(t) for t in (p["title"], p["abstract"], p["terms"], ", ".join(people[p["id"]])))]
              for p in data["projects"]),
+        )
+
+
+def load_opportunities(conn: Connection, data: dict) -> None:
+    """Replace only the funding-call tables, in one transaction; awards are untouched."""
+    with conn:
+        conn.execute("DELETE FROM opportunities")  # cascades to the programs, applicant types and search rows
+        for table in OPPORTUNITY_TABLES:
+            _insert(conn, table, data[table])
+        conn.copy_rows(  # the search document column is generated from these
+            "opportunities_fts", ["opportunity_id", "title", "description", "extra"],
+            ([o["id"], search_text(o["title"]), search_text(o["description"]),
+              search_text(" ".join((o["number"], o["agency"], o["agency_name"], o["categories"])))]
+             for o in data["opportunities"]),
         )

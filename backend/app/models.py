@@ -616,6 +616,102 @@ class IntroDraft(BaseModel):
     model: str | None
 
 
+# ---------- funding opportunities (Grants.gov) ----------
+
+# posted: open for applications; forecasted: announced but not open yet, so its dates are estimates; closed: past
+# its deadline (kept briefly so links don't break).
+OpportunityStatus = Literal["posted", "forecasted", "closed"]
+OpportunitySort = Literal["deadline", "relevance", "newest"]
+
+
+class ApplicantType(BaseModel):
+    code: str  # Grants.gov applicant-type code, e.g. "06" public/state-controlled higher education, "20" private
+    label: str
+
+
+class Opportunity(BaseModel):
+    """A federal funding call (RFP / notice of funding opportunity). An invitation to apply, not an award."""
+
+    id: str  # gg-<Grants.gov opportunity id>
+    number: str  # the agency's call number, e.g. "RFA-CA-27-019"
+    title: str
+    status: OpportunityStatus
+    agency: str  # short label used across the site: NIH, NSF, DOD...
+    agencyName: str  # e.g. "National Institutes of Health"
+    postedDate: str | None  # ISO date
+    closeDate: str | None  # ISO date of the application deadline; null when the call gives none
+    closeDateEstimated: bool  # true for forecasted calls: the agency's estimate
+    closeDateNote: str | None  # the agency's wording when the deadline isn't one date
+    daysLeft: int | None  # whole days from today to closeDate (negative once passed); null without a date
+    awardFloor: int | None  # dollars
+    awardCeiling: int | None  # dollars
+    expectedAwards: int | None
+    universitiesEligible: bool  # lists applicant type 06 or 20 (higher education); always check eligibilityText
+    categories: list[str]  # funding activity categories, e.g. ["Health"]
+    programs: list[str]  # assistance listing numbers, e.g. ["93.393"]
+    source: Source  # the official Grants.gov page
+    updatedAt: str  # when it was fetched from Grants.gov (ISO time)
+
+
+class OpportunityContact(BaseModel):
+    name: str | None
+    email: str | None
+    phone: str | None
+
+
+class OpportunityDetail(Opportunity):
+    description: list[str]  # the agency's synopsis, verbatim, as paragraphs
+    eligibilityText: str  # the agency's eligibility wording, verbatim ("" when none)
+    applicantTypes: list[ApplicantType]
+    fundingInstruments: list[str]  # e.g. ["Grant", "Cooperative Agreement"]
+    totalFunding: int | None  # estimated total program funding, dollars
+    costSharing: bool
+    archiveDate: str | None  # ISO date Grants.gov removes the call
+    contact: OpportunityContact
+    pastAwardCount: int  # Temple awards under any of the same assistance listings (parent awards only)
+    pastAwards: list[Project]  # the most recent of those, newest first, at most 10
+
+
+class OpportunityFacets(BaseModel):
+    agencies: list[FacetValue]
+    status: list[FacetValue]
+    categories: list[FacetValue]
+
+
+class OpportunitySearchResponse(BaseModel):
+    query: str
+    total: int
+    page: int
+    pageSize: int
+    sort: OpportunitySort
+    results: list[Opportunity]
+    facets: OpportunityFacets  # counts for the current query and other filters, ignoring each facet's own filter
+
+
+class OpportunityResearcher(BaseModel):
+    """A Temple researcher whose stored records overlap a call. Overlap, not a recommendation or eligibility check."""
+
+    person: PersonSummary
+    band: MatchBand
+    reasons: list[str]  # plain-language reasons from stored fields, e.g. "3 grants on cancer informatics"
+    projectIds: list[str]  # the records behind the reasons, strongest first
+    awardedUnderProgram: bool  # has a Temple award under one of the call's assistance listings
+
+
+class OpportunityResearchers(BaseModel):
+    opportunityId: str
+    researchers: list[OpportunityResearcher]  # strongest overlap first, at most 12
+    crossCollege: bool  # the list spans more than one college
+    notice: str  # what the list does and doesn't mean, for display under it
+
+
+class ResearcherOpportunity(BaseModel):
+    opportunity: Opportunity
+    band: MatchBand
+    reasons: list[str]
+    projectIds: list[str]  # the researcher's records behind the reasons
+
+
 # ---------- saved conversations ----------
 
 class ConversationSummary(BaseModel):

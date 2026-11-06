@@ -135,6 +135,34 @@ def test_profile_people_question_retrieves_ranked_records(client, fake_model):
     assert response.status_code == 200
 
 
+
+def test_profile_does_not_crowd_out_a_general_people_question(fake_model):
+    app = create_app()
+    load(app.state.db, merge([normalize([
+        record(),
+        record(appl_id=2, core_project_num="R01EB000002", project_title="Wearable sensors for engineering students",
+               abstract_text="Sensors and devices.", phr_text="Sensors.", pref_terms="Sensors",
+               agency_ic_admin={"abbreviation": "NIBIB", "name": "National Institute of Biomedical Imaging"},
+               agency_ic_fundings=[{"abbreviation": "NIBIB", "name": "National Institute of Biomedical Imaging"}],
+               organization={"dept_type": "ENGINEERING (ALL TYPES)"},
+               principal_investigators=[{"profile_id": 20, "first_name": "SAM", "middle_name": "",
+                                         "last_name": "LEE", "is_contact_pi": True}]),
+    ])]))
+    calls = fake_model({"mode": "people", "summary": "Domenico Pratico leads this work [1].",
+                        "people": [{"name": "Domenico Pratico", "focus": "Down syndrome research", "records": [1]}]})
+    profile = {"topics": ["engineering"], "terms": ["sensors"]}
+    general = TestClient(app).post("/api/assistant", json={
+        "profile": profile, "messages": [{"role": "user", "text": "Who studies Alzheimer's disease?"}]})
+    assert general.status_code == 200
+    assert general.json()["searchedFor"].endswith("alzheimer disease")
+    prompt = calls[-1][-1]["content"]
+    assert "Proteostasis in Down syndrome" in prompt and "Wearable sensors" not in prompt
+
+    personal = TestClient(app).post("/api/assistant", json={
+        "profile": profile, "messages": [{"role": "user", "text": "Who should I talk to about my sensors work?"}]})
+    assert personal.status_code == 200
+    assert "Wearable sensors" in calls[-1][-1]["content"]
+
 def team_record(n, title, org_type, first, last):
     return record(appl_id=100 + n, core_project_num=f"R01HL00000{n}", project_title=title,
                   organization={"dept_type": None}, organization_type={"name": org_type},

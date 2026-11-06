@@ -37,6 +37,7 @@ cp .env.example .env                   # DATABASE_URL defaults to the local rese
 uv sync
 uv run python -m ingest.run            # fetch every source into the database (about 2 minutes)
 uv run python -m ingest.run --offline  # reload from the cached raw JSON, no API calls
+uv run python -m ingest.grants_gov     # refresh only the funding calls (about 5 minutes); safe to run daily
 uv run python -m app.backup             # pg_dump the app's tables to data/backups/
 uv run uvicorn app.main:app --reload            # http://localhost:8000/api/health
 uv run pytest                          # each test gets its own schema in research_hub_test (TEST_DATABASE_URL)
@@ -54,6 +55,14 @@ so Supabase's public Data API can't read them.
 | USAspending.gov | Other federal agencies' grants (DOD, DOE, ED, NASA, ...) | Research programs only; NIH/NSF skipped as duplicates |
 | ClinicalTrials.gov | Trials sponsored by Temple or run at a Temple site | Status ("Recruiting") from the registry |
 | OpenAlex | Articles since 2024 with a Temple author and a reported funder | Affiliation gives the college; optional `OPENALEX_API_KEY` in `.env` |
+| Grants.gov | Posted and forecasted federal funding calls (RFPs) from the agencies in Temple's records | Calls whose applicant types rule out universities are left out; description and eligibility kept as the agency wrote them; forecast deadlines are estimates |
+
+Funding calls are invitations to apply, not awards, and their deadlines change. `ingest.run` fetches them after the
+awards (a failed Grants.gov fetch keeps the previous calls and doesn't fail the import; `--offline` skips them with a
+note when `data/raw/grants_gov.json` isn't cached yet). `uv run python -m ingest.grants_gov` re-fetches only the calls
+and replaces only the opportunity tables, so it can run daily (`--offline` reloads them from the cache). Calls are
+linked to Temple's past awards by assistance listing (ALN, formerly CFDA) numbers, which USAspending, NIH RePORTER and
+NSF give on each award (`project_programs`).
 
 Mapping rules live in `backend/app/colleges.py` (colleges), `backend/ingest/funders.py` (funding types, inferred from names) and `backend/app/topics.py` (topics: funder institute for grants, title keywords otherwise). People are matched across sources by first and last name.
 

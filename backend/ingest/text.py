@@ -63,3 +63,22 @@ def name_key(name: str) -> str:
     parts = [re.sub(r"[^a-z]", "", p) for p in plain.lower().split()]
     parts = [p for p in parts if p]
     return f"{parts[0]} {parts[-1]}" if parts else ""
+
+
+def aln(value: str | None) -> str | None:
+    """An assistance listing (ALN, formerly CFDA) number as NN.NNN: '93.866', '93.86' (a dropped zero), '93866'.
+
+    None when the value isn't one ('', 'N/A', '93.XXX').
+    """
+    text = (value or "").strip()
+    if m := re.fullmatch(r"(\d{2})\.(\d{1,3})", text):
+        return f"{m.group(1)}.{m.group(2).ljust(3, '0')}"
+    if m := re.fullmatch(r"(\d{2})(\d{3})", text):
+        return f"{m.group(1)}.{m.group(2)}"
+    return None
+
+
+def alns(value: str | None) -> list[str]:
+    """Every ALN in a list such as '47.041, 47.049' (NSF), in order, without repeats."""
+    out = [a for a in (aln(part) for part in re.split(r"[,;\s]+", value or "")) if a]
+    return list(dict.fromkeys(out))

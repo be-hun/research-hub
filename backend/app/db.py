@@ -20,7 +20,7 @@ from app import config
 
 SCHEMA = Path(__file__).with_name("schema.sql")
 CONVERSATIONS = Path(__file__).with_name("conversations.sql")  # saved Ask chats; never dropped by init_schema
-SCHEMA_VERSION = 5  # bump when schema.sql changes; older databases are rebuilt by the next import
+SCHEMA_VERSION = 6  # bump when schema.sql changes; older databases are rebuilt by the next import
 _INIT_LOCK = 7_041_955  # advisory lock id, so two app workers starting at once don't both build the schema
 _TABLES = re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", SCHEMA.read_text())
 # A quoted string (kept as is), a ? placeholder, or a literal % (escaped because psycopg formats with %s).

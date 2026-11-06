@@ -12,7 +12,6 @@ const nextConfig = {
     return [
       { source: "/responsible-ai", destination: "/about#responsible-ai", permanent: false },
       { source: "/assistant", destination: "/ask", permanent: false },
-      { source: "/opportunities/:path*", destination: "/explore", permanent: false },
       { source: "/pathways", destination: "/topics", permanent: false },
       { source: "/matches", destination: "/explore", permanent: false },
       { source: "/profile", destination: "/account", permanent: false },

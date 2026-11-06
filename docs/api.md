@@ -23,12 +23,17 @@ when the generated files are stale. This page adds what code can't say: behaviou
 | `GET` | `/api/topics/{topic_id}` | — | `TopicDetail` |
 | `GET` | `/api/projects/featured` | — | `Project[]` |
 | `GET` | `/api/projects/{project_id}` | — | `ProjectDetail` |
+| `GET` | `/api/projects/{project_id}/opportunities` | — | `Opportunity[]` |
 | `GET` | `/api/projects` | `ids` | `Project[]` |
 | `GET` | `/api/researchers` | `q`, `page`, `college` (repeatable), `kind`, `sort` | `PeopleResponse` |
 | `GET` | `/api/researchers/{researcher_id}` | — | `ResearcherProfile` |
 | `GET` | `/api/researchers/{researcher_id}/projects` | — | `ResearcherProject[]` |
 | `GET` | `/api/researchers/{researcher_id}/collaborators` | — | `ResearcherCollaborator[]` |
 | `GET` | `/api/researchers/{researcher_id}/compatibility` | — | `ResearcherCompatibility` |
+| `GET` | `/api/researchers/{researcher_id}/opportunities` | — | `ResearcherOpportunity[]` |
+| `GET` | `/api/opportunities` | `q`, `page`, `agency` (repeatable), `status` (repeatable), `category` (repeatable), `universities`, `closes_within`, `sort` | `OpportunitySearchResponse` |
+| `GET` | `/api/opportunities/{opportunity_id}` | — | `OpportunityDetail` |
+| `GET` | `/api/opportunities/{opportunity_id}/researchers` | — | `OpportunityResearchers` |
 | `GET` | `/api/demo-profile` | — | `DemoResearcherProfile` |
 | `POST` | `/api/for-you` | body: `ProfileInput` | `ForYou` |
 | `POST` | `/api/for-you/people` | `page`, body: `ProfileInput` | `PeopleMatches` |
@@ -264,6 +269,33 @@ Body: `AssistantRequest`, i.e. `{ messages: { role: "user" | "assistant", text: 
 The assistant has no rate limit. A public launch should add rate limiting and budget accounting
 (ideally at the reverse proxy or other shared infrastructure) so the API key can't be run up.
 
+## Saved conversations
+
+Ask keeps a history like a normal chatbot: a list of past conversations that can be reopened, renamed and deleted.
+
+- **Owner.** Every conversation endpoint requires an `X-Client-Id` header of 8–64 characters from `[A-Za-z0-9-]`;
+  a missing or malformed one is `400`. The frontend sends `demo-maya` when signed in to the demo, otherwise a random
+  UUID it keeps in `localStorage`. This is demo-grade identity, not authentication: anyone who knows an id can read
+  its conversations. Every query filters by it, and another owner's conversation is `404`.
+- **Saving happens in `POST /api/assistant`.** With an `X-Client-Id` header, each answer (including `mode: "none"`
+  "nothing found" answers, but not `4xx`/`5xx` errors) is saved as two messages: the request's last user message and
+  the reply. Without `conversationId` a new conversation is started, titled with that question cut to 80 characters
+  at a word boundary; with one, the turn is appended (another owner's id is `404`, checked before the model is
+  called) and `updatedAt` moves. The reply's `conversationId` is the conversation it went into. Without the header
+  nothing is saved and `conversationId` is `null`; a malformed header is `400`. A failed save is logged and the answer
+  is still returned, with `conversationId: null`.
+- The assistant message's `text` is the reply's `summary`, and `reply` is the full `AssistantReply` as returned, so a
+  reopened conversation shows the same cards. A stored reply that no longer fits the current contract comes back as
+  `reply: null` (the text still shows).
+- `GET /api/conversations` returns `ConversationList`: the owner's newest 50 by `updatedAt`, each with its
+  `messageCount`.
+- `GET /api/conversations/:id` returns `Conversation` with its `messages` in order.
+- `PATCH /api/conversations/:id` with `ConversationRename { title }` (trimmed, 1–120 characters, else `422`) returns
+  the `ConversationSummary`. Renaming doesn't change `updatedAt`.
+- `DELETE /api/conversations/:id` returns `204` and deletes its messages too.
+- The tables (`backend/app/conversations.sql`) are created at startup and are not part of `schema.sql`, so a schema
+  rebuild or an import doesn't erase them.
+
 ## `POST /api/intro-draft`
 
 Body: `IntroDraftRequest`, i.e. `{ researcherId: string, profile: ProfileInput, senderName?: string }`. Returns
@@ -280,6 +312,44 @@ that researcher, used by the "Draft an intro" button on Ask's person cards and t
 - `citations` lists the records the email mentions (all records considered when `available` is false), with ids and
   titles read from the database. Each call writes a fresh draft; nothing is cached or stored.
 - 404 for an unknown researcher, 422 for an invalid profile, 503 with `{ detail }` when the AI service is unavailable.
+
+## Funding opportunities (`/api/opportunities`)
+
+Federal funding calls (RFPs, notices of funding opportunity) from the Grants.gov API, refreshed by
+`ingest.run`. A call is an invitation to apply, not an award, and its dates can change: every call links to its
+Grants.gov page and carries `updatedAt`, the time it was fetched.
+
+- `GET /api/opportunities` returns `OpportunitySearchResponse`. `q` matches title, description, call number and
+  agency. Filters: `agency`, `status` (`posted`, `forecasted`, `closed`; none given means posted and forecasted),
+  `category`, `universities=true` (calls listing applicant type 06 or 20, higher education) and `closes_within`
+  (days). `sort` is `deadline` (default: soonest first, calls without a date last), `relevance` or `newest`.
+  `facets` count the current query and other filters, ignoring each facet's own filter.
+  - `q` is read by Postgres `websearch_to_tsquery` ("quoted phrases", `-excluded` words). A `q` equal to a call
+    number (`RFA-CA-27-019`) or an agency label (`NSF`), ignoring case, also matches; under `relevance` an exact
+    call number ranks first, then `ts_rank` (title above description above number, agency and categories).
+    `relevance` without `q` is deadline order. `newest` is `postedDate` descending, ties by title.
+  - A posted call whose `closeDate` is before today, or a forecasted call whose estimated `closeDate` is, is treated
+    as `closed` everywhere: it is hidden unless
+    `status=closed` is asked for, counted under `closed` in `facets.status`, and returned with `status: "closed"`.
+    `daysLeft` and every comparison with today use the database's `current_date`.
+  - `category` keeps calls listing any of the given categories; `closes_within=N` keeps calls whose `closeDate` is
+    today through N days from today (calls without a date drop out).
+  - Status facet labels: `posted` "Open", `forecasted` "Forecasted", `closed` "Closed". Agency and category facets
+    are labelled with their value.
+- `GET /api/opportunities/:id` returns `OpportunityDetail`: the synopsis and eligibility text verbatim, applicant
+  types, award range, contact, and `pastAwards`, Temple awards under the same assistance listing (ALN) numbers.
+  `description` is the stored synopsis split at blank lines. `pastAwardCount` and `pastAwards` count parent awards
+  only (an NIH center-grant component is part of its parent), newest fiscal year first, at most 10. 404 if unknown.
+- `GET /api/opportunities/:id/researchers` returns `OpportunityResearchers`: Temple researchers whose stored records
+  overlap the call, scored deterministically (no model call) and shown with `notice`. Overlap is a discovery aid,
+  not a recommendation or an eligibility check.
+- `GET /api/researchers/:id/opportunities` returns open calls that overlap a researcher's records, at most 8.
+- `GET /api/projects/:id/opportunities` returns open calls sharing an assistance listing with that award: posted
+  or forecasted with no passed deadline, soonest first, at most 6. A center-grant component also uses its parent
+  award's listings. 404 if the project is unknown.
+
+`universitiesEligible` comes from Grants.gov's applicant-type codes. The site never decides eligibility; the
+agency's own `eligibilityText` is shown as written.
 
 ## Data rules
 
