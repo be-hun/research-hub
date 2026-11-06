@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Inter, Source_Serif_4 } from "next/font/google";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
+import NavProgress from "@/components/NavProgress";
 import "./globals.css";
 
 const serif = Source_Serif_4({ subsets: ["latin"], variable: "--font-serif" });
@@ -28,6 +30,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >
           Skip to content
         </a>
+        {/* useSearchParams needs a Suspense boundary so static pages still prerender. */}
+        <Suspense fallback={null}>
+          <NavProgress />
+        </Suspense>
         <Header />
         <div id="main" className="flex-grow">
           {children}

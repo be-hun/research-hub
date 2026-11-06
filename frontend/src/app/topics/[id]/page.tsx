@@ -94,7 +94,7 @@ export default async function TopicPage({ params }: { params: { id: string } }) 
       </div>
 
       <div className="grid lg:grid-cols-[1fr_1.6fr] gap-12">
-        <Section title="Who works on this" subtitle="By grants in this topic">
+        <Section title="Who works on this" subtitle="By records in this topic: grants, trials and papers">
           <ul className="bg-surface border border-line rounded-xl divide-y divide-line">
             {t.people.map((p) => (
               <li key={p.researcherId} className="px-4 py-3 flex items-center gap-3">
@@ -107,7 +107,7 @@ export default async function TopicPage({ params }: { params: { id: string } }) 
                     {p.department && <span>{p.department}</span>}
                   </div>
                 </div>
-                <span className="text-small text-ink-3 num shrink-0">{count(p.awards, "award")}</span>
+                <span className="text-small text-ink-3 num shrink-0">{count(p.awards, "record")}</span>
               </li>
             ))}
           </ul>

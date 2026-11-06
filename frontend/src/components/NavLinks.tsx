@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+// Ask is the site's most useful feature, so it sits second and stands out. "Data" is the all-numbers view.
 export const NAV = [
-  { href: "/explore", label: "Explore" },
   { href: "/search", label: "Search" },
+  { href: "/ask", label: "Ask", highlight: true },
   { href: "/topics", label: "Topics" },
   { href: "/researchers", label: "People" },
   { href: "/colleges", label: "Colleges" },
-  { href: "/ask", label: "Ask" },
+  { href: "/explore", label: "Data" },
   { href: "/about", label: "About" },
 ];
 
@@ -21,7 +22,9 @@ export default function NavLinks({ mobile = false }: { mobile?: boolean }) {
       {NAV.map((item) => {
         const on = path === item.href || path.startsWith(`${item.href}/`);
         const base = mobile ? "block px-4 py-2.5 text-body" : "px-3 py-2 rounded-md";
-        const state = on
+        const state = item.highlight && !mobile
+          ? `font-semibold ${on ? "bg-cherry-dark text-white" : "bg-cherry text-white hover:bg-cherry-dark"}`
+          : on
           ? mobile
             ? "text-cherry font-semibold bg-cherry-tint"
             : "text-cherry bg-cherry-tint"

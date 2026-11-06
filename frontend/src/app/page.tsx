@@ -3,11 +3,13 @@ import Link from "next/link";
 import AwardRow from "@/components/AwardRow";
 import BarList from "@/components/charts/BarList";
 import ForYou from "@/components/ForYou";
+import Icon from "@/components/Icon";
 import SearchBar from "@/components/SearchBar";
 import Section from "@/components/Section";
 import StatTiles from "@/components/StatTiles";
 import TopicTile from "@/components/TopicTile";
 import { getForYou, getOverview } from "@/lib/api";
+import { AUDIENCES } from "@/lib/audiences";
 import { COLLEGES } from "@/lib/colleges";
 import { demoProfileInput } from "@/lib/demo";
 import { count, money, shortDate } from "@/lib/format";
@@ -20,23 +22,8 @@ export default async function HomePage() {
 
   return (
     <main>
-      {/* Demo account: Maya's matches come first */}
-      {forYou && (
-        <section className="bg-surface border-b border-line">
-          <div className="max-w-page mx-auto px-4 sm:px-6 py-10">
-            <Section
-              title="For you, Maya"
-              subtitle="New and active research that shares your interests. Synthetic demo account."
-              action={{ href: "/account#for-you", label: "See all and edit interests" }}
-            >
-              <ForYou data={forYou} limit={3} />
-            </Section>
-          </div>
-        </section>
-      )}
-
       {/* Hero */}
-      <section className="max-w-page mx-auto px-4 sm:px-6 pt-12 pb-14 grid lg:grid-cols-[1.1fr_1fr] gap-10 lg:gap-14 items-center">
+      <section className="max-w-page mx-auto px-4 sm:px-6 pt-12 pb-8 grid lg:grid-cols-[1.1fr_1fr] gap-10 lg:gap-14 items-center">
         <div>
           <p className="text-small font-semibold text-cherry mb-3">Temple University research, in one place</p>
           <h1 className="text-[40px] leading-[46px] sm:text-display font-serif text-ink">
@@ -47,6 +34,13 @@ export default async function HomePage() {
             {o.totals.publications.toLocaleString()} funded papers across {o.totals.colleges} colleges.
           </p>
           <SearchBar size="lg" placeholder="Try: machine learning in healthcare" />
+          <Link
+            href="/ask"
+            className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-cherry text-cherry text-small font-semibold hover:bg-cherry-tint"
+          >
+            <Icon name="auto_awesome" size={18} />
+            Or ask a question: “Who studies Alzheimer’s disease?”
+          </Link>
           <div className="flex flex-wrap items-center gap-2 mt-4">
             <span className="text-small text-ink-3">Try</span>
             {EXAMPLES.map((q) => (
@@ -60,7 +54,7 @@ export default async function HomePage() {
             ))}
           </div>
         </div>
-        <div className="relative aspect-[4/3] rounded-2xl overflow-hidden shadow-card">
+        <div className="relative aspect-[4/3] rounded-2xl overflow-hidden shadow-card hidden sm:block">
           <Image
             src="/images/hero-lab.jpg"
             alt="Students working together at a lab bench with a microscope and a laptop"
@@ -72,7 +66,33 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <div className="max-w-page mx-auto px-4 sm:px-6 space-y-16">
+      <section aria-label="Who it is for" className="max-w-page mx-auto px-4 sm:px-6 pb-10">
+        <ul className="grid sm:grid-cols-3 gap-3">
+          {AUDIENCES.map((a) => (
+            <li key={a.title} className="rounded-xl border border-line bg-surface px-4 py-3">
+              <p className="text-small font-semibold text-ink">{a.title}</p>
+              <p className="text-small text-ink-2">{a.text}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* Demo account: a compact strip of Maya's matches, under the pitch */}
+      {forYou && (
+        <section className="bg-surface border-y border-line">
+          <div className="max-w-page mx-auto px-4 sm:px-6 py-10">
+            <Section
+              title="For you, Maya"
+              subtitle="New and active research that shares your interests. Synthetic demo account."
+              action={{ href: "/account#for-you", label: "See all and edit interests" }}
+            >
+              <ForYou data={forYou} limit={3} />
+            </Section>
+          </div>
+        </section>
+      )}
+
+      <div className="max-w-page mx-auto px-4 sm:px-6 space-y-16 pt-12">
         <div>
           <StatTiles totals={o.totals} />
           <p className="text-tiny text-ink-3 mt-2">

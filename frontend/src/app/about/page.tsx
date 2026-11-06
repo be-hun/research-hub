@@ -5,15 +5,10 @@ import Section from "@/components/Section";
 import { PHOTOS } from "@/lib/photos";
 import SourceCards from "@/components/SourceCards";
 import { getOverview } from "@/lib/api";
+import { AUDIENCES } from "@/lib/audiences";
 import { shortDate } from "@/lib/format";
 
-export const metadata: Metadata = { title: "About the data" };
-
-const AUDIENCES = [
-  { title: "Students", text: "Find who works on what, in any college." },
-  { title: "Faculty", text: "Find collaborators outside your own college." },
-  { title: "Staff and leadership", text: "See research by college, topic, funder and year." },
-];
+export const metadata: Metadata = { title: "About ResearchConnect" };
 
 const STEPS = [
   ["Public records", "Grants (NIH, NSF, USAspending), trials (ClinicalTrials.gov) and papers (OpenAlex)."],

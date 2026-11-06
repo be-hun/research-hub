@@ -43,7 +43,7 @@ export default async function ExplorePage() {
               .filter((c) => c.funding > 0)
               .map((c) => ({
                 key: c.college,
-                label: COLLEGES[c.college].name,
+                label: COLLEGES[c.college].short, // the same names as Home's funding chart
                 href: `/search?college=${c.college}`,
                 color: COLLEGES[c.college].color,
                 value: c.funding,
