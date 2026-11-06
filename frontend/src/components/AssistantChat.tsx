@@ -1,11 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { API_URL } from "@/lib/api";
 import { KIND_LABELS } from "@/lib/colleges";
 import { count, yearRange } from "@/lib/format";
-import type { AssistantPerson, AssistantRecord, AssistantReply, AssistantRequest, ProfileInput, Project } from "@/lib/types";
+import type {
+  AssistantPerson,
+  AssistantRecord,
+  AssistantReply,
+  AssistantRequest,
+  ChatMessage,
+  ProfileInput,
+  Project,
+} from "@/lib/types";
 import Icon from "./Icon";
 import { CollegeTag, KindTag, StatusChip } from "./Tags";
 
@@ -146,8 +154,9 @@ function Answer({ reply, onAsk }: { reply: AssistantReply; onAsk: (q: string) =>
           {reply.followUps.map((q) => (
             <button
               key={q}
+              type="button"
               onClick={() => onAsk(q)}
-              className="inline-flex items-center gap-1 text-small px-3 py-1.5 rounded-full bg-surface border border-line hover:border-cherry hover:text-cherry"
+              className="inline-flex items-center gap-1 text-left text-small px-3 py-1.5 rounded-full bg-surface border border-line hover:border-cherry hover:text-cherry focus-visible:border-cherry"
             >
               <Icon name="arrow_forward" size={14} />
               {q}
@@ -157,6 +166,53 @@ function Answer({ reply, onAsk }: { reply: AssistantReply; onAsk: (q: string) =>
       )}
     </div>
   );
+}
+
+function Avatar() {
+  return (
+    <div className="w-8 h-8 rounded-lg bg-ink text-white flex items-center justify-center shrink-0" aria-hidden="true">
+      <Icon name="auto_awesome" size={18} />
+    </div>
+  );
+}
+
+/**
+ * While the request runs: placeholder cards and a status line. The browser can't see the backend's progress, so the
+ * second line is only a timer; both steps are what the backend does (search first, then write).
+ */
+function Waiting({ slow }: { slow: boolean }) {
+  return (
+    <div className="flex gap-3">
+      <Avatar />
+      <div className="flex-1 min-w-0 space-y-3">
+        <p className="flex items-center gap-2 text-small text-ink-2">
+          <span className="w-2 h-2 rounded-full bg-cherry animate-pulse shrink-0" aria-hidden="true" />
+          {slow ? "Reading the records and writing an answer…" : "Searching Temple records…"}
+        </p>
+        <ul className="space-y-2 animate-pulse" aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <li key={i} className="bg-surface border border-line rounded-xl p-4">
+              <div className="h-3 w-28 rounded bg-line" />
+              <div className="h-4 w-4/5 rounded bg-line mt-3" />
+              <div className="h-3 w-1/2 rounded bg-line mt-2" />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+// The API takes a short history. Seven alternating turns start on a user turn and end on the new question.
+const HISTORY = 7;
+const FAILED = "The assistant couldn't answer just now.";
+
+/** The conversation as the API wants it: no failed exchanges (an error and the question it answered), most recent last. */
+function history(messages: Message[]): ChatMessage[] {
+  const ok = messages.filter((m, i) => !m.error && !(m.role === "user" && messages[i + 1]?.error));
+  const recent = ok.slice(-HISTORY);
+  while (recent.length > 1 && recent[0].role !== "user") recent.shift();
+  return recent.map(({ role, text }) => ({ role, text }));
 }
 
 export default function AssistantChat({
@@ -170,31 +226,48 @@ export default function AssistantChat({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [slow, setSlow] = useState(false);
+  const waitingRef = useRef<HTMLDivElement>(null);
 
-  async function send(text: string) {
+  useEffect(() => {
+    if (!busy) return;
+    setSlow(false);
+    waitingRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const timer = setTimeout(() => setSlow(true), 2000);
+    return () => clearTimeout(timer);
+  }, [busy]);
+
+  async function send(text: string, base: Message[] = messages) {
     const question = text.trim();
     if (!question || busy) return;
-    const next = [...messages, { role: "user" as const, text: question }];
+    const next: Message[] = [...base, { role: "user", text: question }];
     setMessages(next);
     setInput("");
     setBusy(true);
     let reply: Message;
     try {
-      const history = next.filter((m) => !m.error).map(({ role, text }) => ({ role, text }));
       const res = await fetch(`${API_URL}/api/assistant`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, ...(profile ? { profile } : {}) } satisfies AssistantRequest),
+        body: JSON.stringify({ messages: history(next), ...(profile ? { profile } : {}) } satisfies AssistantRequest),
       });
       const body = await res.json().catch(() => ({}));
-      reply = res.ok
-        ? { role: "assistant", text: (body as AssistantReply).summary, reply: body as AssistantReply }
-        : { role: "assistant", text: body.detail ?? "Something went wrong reaching the assistant. Try again.", error: true };
+      // A 422 carries a list of validation errors in `detail`; only a plain sentence is fit to show.
+      reply =
+        res.ok && typeof body?.summary === "string"
+          ? { role: "assistant", text: (body as AssistantReply).summary, reply: body as AssistantReply }
+          : { role: "assistant", text: typeof body?.detail === "string" ? body.detail : FAILED, error: true };
     } catch {
-      reply = { role: "assistant", text: "Something went wrong reaching the assistant. Try again.", error: true };
+      reply = { role: "assistant", text: FAILED, error: true };
     }
     setMessages([...next, reply]);
     setBusy(false);
+  }
+
+  /** Ask the failed question again, replacing the failed exchange. */
+  function retry() {
+    const question = messages[messages.length - 2];
+    if (question?.role === "user") send(question.text, messages.slice(0, -2));
   }
 
   return (
@@ -206,8 +279,9 @@ export default function AssistantChat({
             {suggestions.map((s) => (
               <button
                 key={s}
+                type="button"
                 onClick={() => send(s)}
-                className="block w-full text-left bg-surface border border-line hover:border-cherry px-4 py-3 rounded-lg text-small"
+                className="block w-full text-left bg-surface border border-line hover:border-cherry focus-visible:border-cherry px-4 py-3 rounded-lg text-small"
               >
                 {s}
               </button>
@@ -216,25 +290,39 @@ export default function AssistantChat({
         )}
         {messages.map((m, i) =>
           m.role === "user" ? (
-            <div key={i} className="ml-auto max-w-xl w-fit bg-cherry text-white px-4 py-3 rounded-2xl rounded-br-md">
+            <div key={i} className="ml-auto max-w-xl w-fit bg-cherry text-white px-4 py-3 rounded-2xl rounded-br-md break-words">
               {m.text}
             </div>
           ) : (
             <div key={i} className="flex gap-3">
-              <div className="w-8 h-8 rounded-lg bg-ink text-white flex items-center justify-center shrink-0" aria-hidden="true">
-                <Icon name="auto_awesome" size={18} />
-              </div>
+              <Avatar />
               <div className="flex-1 min-w-0">
                 {m.reply ? (
                   <Answer reply={m.reply} onAsk={send} />
                 ) : (
-                  <p className="bg-canvas border border-line text-ink-2 rounded-xl p-4">{m.text}</p>
+                  <div className="bg-canvas border border-line text-ink-2 rounded-xl p-4">
+                    <p>{m.text}</p>
+                    {m.error && i === messages.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={retry}
+                        disabled={busy}
+                        className="mt-3 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-cherry hover:bg-cherry-dark text-white text-small font-medium disabled:opacity-40"
+                      >
+                        Try again
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
           ),
         )}
-        {busy && <p className="text-small text-ink-3 pl-11">Searching the records…</p>}
+        {busy && (
+          <div ref={waitingRef}>
+            <Waiting slow={slow} />
+          </div>
+        )}
       </div>
       <form
         onSubmit={(e) => {
