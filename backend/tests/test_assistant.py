@@ -123,3 +123,13 @@ def test_model_unavailable_returns_503(client, fake_model):
 def test_rejects_conversation_ending_with_assistant(client):
     res = client.post("/api/assistant", json={"messages": [{"role": "assistant", "text": "hi"}]})
     assert res.status_code == 422
+
+
+def test_profile_people_question_retrieves_ranked_records(client, fake_model):
+    fake_model({"mode": "people", "summary": "Domenico Pratico leads this work [1].",
+                "people": [{"name": "Domenico Pratico", "focus": "Down syndrome research", "records": [1]}]})
+    response = client.post("/api/assistant", json={
+        "profile": {"topics": ["aging"], "terms": ["alzheimer"]},
+        "messages": [{"role": "user", "text": "Who studies Alzheimer's disease?"}],
+    })
+    assert response.status_code == 200
