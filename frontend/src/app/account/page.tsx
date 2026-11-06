@@ -1,90 +1,93 @@
 import type { Metadata } from "next";
-import ForYou from "@/components/ForYou";
-import InterestsEditor from "@/components/InterestsEditor";
+import { Suspense } from "react";
 import SavedList from "@/components/SavedList";
-import Section from "@/components/Section";
-import SignOutButton from "@/components/SignOutButton";
-import { CollegeTag } from "@/components/Tags";
-import { getDemoProfile, getForYou, getTopics } from "@/lib/api";
+import DiscoveryNote from "@/components/profile/DiscoveryNote";
+import { EditInterestsProvider } from "@/components/profile/EditInterests";
+import ProfileCard from "@/components/profile/ProfileCard";
+import ProfileHeader from "@/components/profile/ProfileHeader";
+import SignedOutPreview from "@/components/profile/SignedOutPreview";
+import { CardSkeleton, LineSkeleton, SideSkeleton } from "@/components/profile/Skeletons";
+import { getDemoProfile, getForYou, getForYouPeople, getTopics } from "@/lib/api";
 import { demoProfileInput } from "@/lib/demo";
-import { signInAsDemo } from "./actions";
+import { CollegesSection, FeedSection, HeaderStats, InterestsSection, PeopleSection, TopicsSection } from "./sections";
 
 export const metadata: Metadata = { title: "My account" };
 
-function SignedOut() {
-  return (
-    <main className="max-w-page mx-auto px-4 sm:px-6 pt-12">
-      <div className="max-w-2xl bg-surface border border-line rounded-xl p-5 sm:p-8 space-y-5">
-        <p className="text-tiny font-semibold uppercase tracking-wider text-cherry">Demo account</p>
-        <h1 className="text-[30px] leading-[38px] sm:text-h1 break-words">See ResearchConnect as a researcher would</h1>
-        <p className="text-lead text-ink-2">
-          Sign in as Maya Patel, a synthetic biomedical engineering researcher, to see how the site works for someone
-          looking for collaborators and active research.
-        </p>
-        <ul className="text-body text-ink-2 list-disc pl-5 space-y-1">
-          <li>Research interests you can edit</li>
-          <li>Recruiting trials, active grants and people that match them, all from public records</li>
-          <li>Matches marked in search, on researcher pages and in Ask</li>
-          <li>Saved researchers and records</li>
-        </ul>
-        <form action={signInAsDemo}>
-          <button type="submit" className="px-4 py-2.5 rounded-md bg-cherry text-white font-medium hover:bg-cherry-dark">
-            Sign in as Maya (demo)
-          </button>
-        </form>
-        <p className="text-tiny text-ink-3">
-          No password and no real account. Maya&apos;s changes stay in this browser and are cleared when you sign out.
-        </p>
-      </div>
-    </main>
-  );
-}
-
 const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+
+/** Mark a request's failure as handled now; the section that awaits it still sees the error. */
+function started<T>(p: Promise<T>): Promise<T> {
+  p.catch(() => {});
+  return p;
+}
 
 export default async function AccountPage() {
   const input = demoProfileInput();
-  if (!input) return <SignedOut />;
-  const [profile, topics, forYou] = await Promise.all([getDemoProfile(), getTopics(), getForYou(input)]);
+  if (!input) return <SignedOutPreview profile={await getDemoProfile()} />;
+
+  // Every request starts here, together. The header waits only for the profile; each section below waits, inside
+  // its own <Suspense>, for the requests it needs.
+  const topics = started(getTopics());
+  const forYou = started(getForYou(input));
+  // Page 1 of the full people ranking feeds the college chart. If it fails, the chart counts the top six instead.
+  const people = getForYouPeople(input, 1).catch(() => null);
+  const profile = await getDemoProfile();
   const edited = !sameList(input.topics, profile.interests.map((t) => t.id)) || !sameList(input.terms, profile.terms);
 
   return (
-    <main className="max-w-page mx-auto px-4 sm:px-6 pt-8 space-y-12">
-      <header className="grid lg:grid-cols-[1.5fr_1fr] gap-8 items-start">
-        <div className="flex gap-5 items-start">
-          <div className="w-20 h-20 rounded-full bg-cherry-tint text-cherry font-serif text-h2 flex items-center justify-center shrink-0" aria-hidden="true">
-            {profile.initials}
+    <EditInterestsProvider>
+      <main className="max-w-page mx-auto px-4 sm:px-6 pt-6 sm:pt-8 space-y-6">
+        <ProfileHeader
+          profile={profile}
+          stats={
+            <Suspense fallback={<LineSkeleton className="w-72" />}>
+              <HeaderStats forYou={forYou} topics={topics} input={input} />
+            </Suspense>
+          }
+        />
+
+        {/* Desktop: a main column and a sidebar. Phones: one column, the sidebar after "New for you", then Saved. */}
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:grid-rows-[auto_1fr]">
+          <div className="space-y-6 min-w-0 lg:col-start-1 lg:row-start-1">
+            <ProfileCard id="about" title="About">
+              <div className="space-y-2 text-body text-ink-2">
+                <p>{profile.bio}</p>
+                <p>
+                  Maya is not a real person and her interests are made up. The research matched to her below is real,
+                  from public records.
+                </p>
+              </div>
+            </ProfileCard>
+
+            <Suspense fallback={<CardSkeleton title="Research interests" rows={1} />}>
+              <InterestsSection topics={topics} input={input} edited={edited} />
+            </Suspense>
+
+            <Suspense fallback={<CardSkeleton title="New for you" rows={3} tall />}>
+              <FeedSection forYou={forYou} />
+            </Suspense>
           </div>
-          <div className="min-w-0">
-            <p className="text-tiny font-semibold uppercase tracking-wider text-cherry mb-2">My account · synthetic demo</p>
-            <h1 className="text-h1">{profile.name}</h1>
-            <div className="flex flex-wrap items-center gap-3 mt-2 text-small text-ink-2">
-              <CollegeTag id={profile.college} short={false} />
-              <span>{profile.department}</span>
-            </div>
-            <p className="text-lead text-ink-2 mt-4">{profile.bio}</p>
+
+          <aside className="space-y-6 min-w-0 lg:col-start-2 lg:row-start-1 lg:row-span-2" aria-label="Your matches at a glance">
+            <Suspense fallback={<SideSkeleton title="People to connect with" rows={6} />}>
+              <PeopleSection forYou={forYou} />
+            </Suspense>
+            <Suspense fallback={<SideSkeleton title="Where your matches are" rows={3} />}>
+              <CollegesSection forYou={forYou} people={people} />
+            </Suspense>
+            <Suspense fallback={<SideSkeleton title="Topics you follow" rows={Math.max(1, input.topics.length)} />}>
+              <TopicsSection topics={topics} input={input} />
+            </Suspense>
+            <DiscoveryNote />
+          </aside>
+
+          <div className="min-w-0 self-start lg:col-start-1 lg:row-start-2">
+            <ProfileCard id="saved" title="Saved" subtitle="Kept in this browser for the demo, and cleared when you sign out.">
+              <SavedList compact />
+            </ProfileCard>
           </div>
         </div>
-        <div className="bg-cherry-tint border border-cherry/20 rounded-xl p-4 text-small text-ink-2 space-y-3">
-          <p>
-            <strong className="text-ink">You&apos;re signed in to a demo account.</strong> Maya is not a real person and
-            her interests are made up. The research matched to her is real, from public records.
-          </p>
-          <SignOutButton />
-        </div>
-      </header>
-
-      <Section title="Your research interests" subtitle="Change them and your matches below update.">
-        <InterestsEditor topics={topics.map((t) => ({ id: t.id, name: t.name }))} current={input} edited={edited} />
-      </Section>
-
-      <Section id="for-you" title="For you" subtitle="Active research and people that share your interests.">
-        <ForYou data={forYou} />
-      </Section>
-
-      <Section title="Saved" subtitle="Kept in this browser for the demo.">
-        <SavedList />
-      </Section>
-    </main>
+      </main>
+    </EditInterestsProvider>
   );
 }

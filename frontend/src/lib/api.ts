@@ -4,6 +4,7 @@ import type {
   DemoResearcherProfile,
   ForYou,
   Overview,
+  PeopleMatches,
   PeopleResponse,
   ProfileInput,
   Project,
@@ -97,6 +98,9 @@ export const getResearcherCompatibility = (id: string) =>
 export const getDemoProfile = () => get<DemoResearcherProfile>("/api/demo-profile");
 // Demo-account personalization. Each takes the signed-in profile's interests; nothing is stored server-side.
 export const getForYou = (profile: ProfileInput) => post<ForYou>("/api/for-you", profile);
+/** Everyone who shares the profile's interests, 20 to a page, in the For-you order. `page` starts at 1. */
+export const getForYouPeople = (profile: ProfileInput, page = 1) =>
+  post<PeopleMatches>(`/api/for-you/people?page=${Math.max(1, Math.floor(page))}`, profile);
 export const matchResearcher = (id: string, profile: ProfileInput) =>
   post<ResearcherMatch>(`/api/match/researcher/${encodeURIComponent(id)}`, profile);
 export const matchProjects = (profile: ProfileInput, ids: string[]) =>
