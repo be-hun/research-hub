@@ -138,11 +138,13 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
   const matches = profile
     ? await matchProjects(profile, data.results.map((p) => p.id)).catch(() => ({ matches: [] }))
     : { matches: [] };
-  const matchReason = new Map(matches.matches.map((m) => [m.id, plainReasons(m.reasons)]));
+  const interest = new Map(matches.matches.map((m) => [m.id, m]));
   // A few people and nothing else: the query is most likely a name, so the people are the answer and come first.
   const nameSearch = !!people && people.total > 0 && people.total <= 3;
   const CountHeading = nameSearch ? "h2" : "h1"; // the people are the page's answer on a name search
   const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
+  // Several words without quotes: say quotes force an exact phrase (the backend reads them with websearch_to_tsquery).
+  const quoteHint = data.matchMode !== "phrase" && !params.q.includes('"') && params.q.split(/\s+/).length > 1;
   const filtered = [params.colleges, params.funders, params.status, params.topics, params.kinds, params.funding].some((v) => v?.length);
   const pageHref = (page: number) => `/search?${searchQueryString({ ...params, page })}`;
 
@@ -201,6 +203,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
         {params.q && (
           <p className="text-small text-ink-3 mt-2">
             <span className="font-medium text-ink-2">Searched for:</span> {data.interpretedAs.replace(/^Keywords: /, "")}
+            {quoteHint && <> · Use quotes for an exact phrase, like &quot;{params.q}&quot;</>}
           </p>
         )}
       </div>
@@ -242,7 +245,19 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
                 {" "}matching <span className="font-semibold text-ink">“{params.q}”</span>
               </>
             ) : null}
+            {data.matchMode === "phrase" && (
+              <span className="ml-2 align-middle inline-flex px-2 py-0.5 rounded-full bg-active-bg text-active-ink text-tiny font-semibold whitespace-nowrap">
+                Exact phrase
+              </span>
+            )}
           </CountHeading>
+
+          {data.matchMode === "any" && data.total > 0 && (
+            <p className="flex items-start gap-2 text-small text-ink-2 bg-surface border border-line rounded-lg px-3 py-2 mb-4">
+              <Icon name="info" size={18} className="text-ink-3 mt-px" />
+              <span>No record has all of these words together. Showing records with any of them.</span>
+            </p>
+          )}
 
           {!nameSearch && people && people.total > 0 && (
             <div className="mb-5">
@@ -277,9 +292,10 @@ export default async function SearchPage({ searchParams }: { searchParams: Raw }
 
           {data.results.length ? (
             <ul className="bg-surface border border-line rounded-xl px-5">
-              {data.results.map((p) => (
-                <AwardRow key={p.id} project={p} showSummary interestMatch={matchReason.get(p.id)} />
-              ))}
+              {data.results.map((p) => {
+                const m = interest.get(p.id);
+                return <AwardRow key={p.id} project={p} showSummary interestBand={m?.band} interestMatch={m && plainReasons(m.reasons)} />;
+              })}
             </ul>
           ) : nameSearch ? null : (
             <div className="bg-surface border border-line rounded-xl p-8 text-center">
