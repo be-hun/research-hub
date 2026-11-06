@@ -123,7 +123,7 @@ def test_college_projects_use_search_filters(client):
 
 
 def test_indexes_exist(client):
-    names = {r[0] for r in _db(client).execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    names = {r[0] for r in _db(client).execute("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()")}
     assert {"idx_project_team_researcher", "idx_project_team_project", "idx_project_colleges_college",
             "idx_project_topics_topic", "idx_projects_kind_active", "idx_projects_updated"} <= names
 

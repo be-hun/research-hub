@@ -5,15 +5,10 @@ import Section from "@/components/Section";
 import { PHOTOS } from "@/lib/photos";
 import SourceCards from "@/components/SourceCards";
 import { getOverview } from "@/lib/api";
+import { AUDIENCES } from "@/lib/audiences";
 import { shortDate } from "@/lib/format";
 
-export const metadata: Metadata = { title: "About the data" };
-
-const AUDIENCES = [
-  { title: "Students", text: "Find who works on what, in any college." },
-  { title: "Faculty", text: "Find collaborators outside your own college." },
-  { title: "Staff and leadership", text: "See research by college, topic, funder and year." },
-];
+export const metadata: Metadata = { title: "About ResearchConnect" };
 
 const STEPS = [
   ["Public records", "Grants (NIH, NSF, USAspending), trials (ClinicalTrials.gov) and papers (OpenAlex)."],
@@ -53,7 +48,7 @@ export default async function AboutPage() {
     <main className="max-w-page mx-auto px-4 sm:px-6 pt-10 space-y-16">
       <header className="grid lg:grid-cols-[1.3fr_1fr] gap-10 items-center">
         <div>
-          <h1 className="text-h1">About ResearchConnect</h1>
+          <h1 className="text-[32px] leading-[40px] font-semibold tracking-[-0.015em] sm:text-h1">About ResearchConnect</h1>
           <p className="text-lead text-ink-2 mt-3">
             Temple&apos;s research is spread across many colleges and hard to see from outside your department.
             ResearchConnect puts it in one place: who works on what, linked to the original records.

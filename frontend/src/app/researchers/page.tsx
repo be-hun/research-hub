@@ -1,15 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ConfidenceChip } from "@/components/ConfidenceNotice";
 import Icon from "@/components/Icon";
 import CampusPhoto from "@/components/CampusPhoto";
 import Illustration from "@/components/Illustration";
 import { CollegeTag } from "@/components/Tags";
-import { getPeople, peopleQueryString } from "@/lib/api";
+import { getPeople, peopleQueryString, type PeopleParams } from "@/lib/api";
 import { COLLEGES } from "@/lib/colleges";
 import { count } from "@/lib/format";
 import { PHOTOS } from "@/lib/photos";
-import type { CollegeId, PeopleParams } from "@/lib/types";
+import type { CollegeId } from "@/lib/types";
 
 export const metadata: Metadata = { title: "People" };
 
@@ -176,7 +175,6 @@ export default async function PeoplePage({ searchParams }: { searchParams: Raw }
                       <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-tiny text-ink-3 mt-0.5">
                         <CollegeTag id={p.college} />
                         {p.department && <span className="truncate max-w-[16rem]">{p.department}</span>}
-                        {p.identityConfidence !== "high" && <ConfidenceChip confidence={p.identityConfidence} />}
                       </span>
                       {p.topics.length > 0 && (
                         <span className="flex flex-wrap gap-1.5 mt-1.5">

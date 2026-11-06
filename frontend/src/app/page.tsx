@@ -13,7 +13,7 @@ export default async function HomePage() {
   return (
     <main>
       {/* Hero */}
-      <section className="max-w-page mx-auto px-4 sm:px-6 pt-12 pb-14 grid lg:grid-cols-[1.1fr_1fr] gap-10 lg:gap-14 items-center">
+      <section className="max-w-page mx-auto px-4 sm:px-6 pt-12 pb-8 grid lg:grid-cols-[1.1fr_1fr] gap-10 lg:gap-14 items-center">
         <div>
           <p className="text-small font-semibold text-cherry mb-3">Temple University research, in one place</p>
           <h1 className="text-[40px] leading-[46px] sm:text-display font-serif text-ink">
@@ -37,7 +37,7 @@ export default async function HomePage() {
             ))}
           </div>
         </div>
-        <div className="relative aspect-[4/3] rounded-2xl overflow-hidden shadow-card">
+        <div className="relative aspect-[4/3] rounded-2xl overflow-hidden shadow-card hidden sm:block">
           <Image
             src="/images/hero-lab.jpg"
             alt="Students working together at a lab bench with a microscope and a laptop"
@@ -49,7 +49,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <div className="max-w-page mx-auto px-4 sm:px-6 space-y-16">
+      <div className="max-w-page mx-auto px-4 sm:px-6 space-y-16 pt-12">
         <div>
           <StatTiles totals={o.totals} />
           <p className="text-tiny text-ink-3 mt-2">

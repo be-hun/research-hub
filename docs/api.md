@@ -3,8 +3,44 @@
 The browser calls these endpoints at `/api/...` on the site's own origin; a rewrite in `frontend/next.config.mjs`
 forwards them to the backend (`API_URL`, default `http://localhost:8000`), so CORS doesn't apply. Set
 `NEXT_PUBLIC_API_URL` at build time only to call a different API host directly. In production the droplet's nginx
-serves `/api/` itself, so the rewrite isn't reached; server-side rendering always uses `API_URL`. Response models live in `backend/app/models.py` and are mirrored in
-`frontend/src/lib/types.ts`; a backend test fails if the two drift apart.
+serves `/api/` itself, so the rewrite isn't reached; server-side rendering always uses `API_URL`.
+
+**Single source of truth.** Response models live in `backend/app/models.py` and routes in `backend/app/main.py`.
+`frontend/src/lib/types.ts` and the endpoint table below are generated from them, so don't edit either by hand.
+After changing a model or route, run `uv run python -m app.contract` in `backend/` and commit the result. CI fails
+when the generated files are stale. This page adds what code can't say: behaviour, rules and limits.
+
+## Endpoints
+
+<!-- BEGIN GENERATED: endpoints (uv run python -m app.contract) -->
+
+| Method | Path | Parameters | Returns |
+| --- | --- | --- | --- |
+| `GET` | `/api/health` | — | `object` |
+| `GET` | `/api/search` | `q`, `page`, `college` (repeatable), `funder` (repeatable), `verification` (repeatable), `status` (repeatable), `topic` (repeatable), `kind` (repeatable), `funding` (repeatable) | `SearchResponse` |
+| `GET` | `/api/overview` | — | `Overview` |
+| `GET` | `/api/topics` | — | `TopicSummary[]` |
+| `GET` | `/api/topics/{topic_id}` | — | `TopicDetail` |
+| `GET` | `/api/projects/featured` | — | `Project[]` |
+| `GET` | `/api/projects/{project_id}` | — | `ProjectDetail` |
+| `GET` | `/api/projects` | `ids` | `Project[]` |
+| `GET` | `/api/researchers` | `q`, `page`, `college` (repeatable), `kind`, `sort` | `PeopleResponse` |
+| `GET` | `/api/researchers/{researcher_id}` | — | `ResearcherProfile` |
+| `GET` | `/api/researchers/{researcher_id}/projects` | — | `ResearcherProject[]` |
+| `GET` | `/api/researchers/{researcher_id}/collaborators` | — | `ResearcherCollaborator[]` |
+| `GET` | `/api/researchers/{researcher_id}/compatibility` | — | `ResearcherCompatibility` |
+| `GET` | `/api/demo-profile` | — | `DemoResearcherProfile` |
+| `POST` | `/api/for-you` | body: `ProfileInput` | `ForYou` |
+| `POST` | `/api/for-you/people` | `page`, body: `ProfileInput` | `PeopleMatches` |
+| `POST` | `/api/match/researcher/{researcher_id}` | body: `ProfileInput` | `ResearcherMatch` |
+| `POST` | `/api/match/projects` | body: `ProjectMatchRequest` | `ProjectMatches` |
+| `GET` | `/api/colleges` | — | `CollegeSummary[]` |
+| `GET` | `/api/colleges/{college_id}` | — | `CollegeDashboard` |
+| `GET` | `/api/colleges/{college_id}/projects` | `page`, `kind` (repeatable) | `SearchResponse` |
+| `GET` | `/api/summaries/{kind}/{ref_id}` | — | `AISummary` |
+| `POST` | `/api/assistant` | body: `AssistantRequest` | `AssistantReply` |
+
+<!-- END GENERATED: endpoints -->
 
 Every record has a `kind`: `award` (grant), `trial` (clinical trial) or `publication`, a `statusLabel` in the
 source's own words, and `fundingTypes` (federal, industry, foundations & nonprofits, Temple, other universities &
@@ -42,14 +78,32 @@ define it, colleges, trend, top investigators, awards, related topics). 404 if u
 | `page`    | int      | 1-based, 10 results per page            |
 | `college` | repeated | `CollegeId`                             |
 | `funder`  | repeated | `NIH`, `NSF`, `CDC`, `AHRQ`             |
-| `status`  | repeated | `active` \| `ended`                     |
+| `status`  | repeated | `active` \| `ended` \| `recruiting` (trials: Recruiting, Not yet recruiting, Enrolling by invitation) |
 | `topic`   | repeated | topic id                                |
 | `kind`    | repeated | `award` \| `trial` \| `publication`     |
 | `funding` | repeated | funding type key, e.g. `industry`, `foundation` |
 
-Returns `SearchResponse`: `{ query, interpretedAs, total, page, pageSize, results: Project[], facets }`.
-`facets` gives counts per college, funder, status and topic; each facet ignores its own filter, so the other values
-stay selectable. Each result may include `match: { reason, evidence[] }` naming which stored fields matched.
+Returns `SearchResponse`: `{ query, interpretedAs, matchMode, total, page, pageSize, results: Project[], facets }`.
+`facets` gives counts per college, funder, status and topic for the same records as the list; each facet ignores
+its own filter, so the other values stay selectable. `facets.status` adds a `recruiting` value when any result is a
+trial taking participants.
+
+With `q`, a result must contain the words as a phrase or all of the words (stemmed, in the title, abstract, people
+or subject terms). Exact-phrase records come first, then the rest by relevance (title weighs most). Only when no
+record has every word does the search fall back to records with any of them. `matchMode` says which happened:
+
+- `phrase`: the top results contain the exact phrase (two or more words);
+- `all`: the results contain every word (always the case for a one-word query);
+- `any`: no record had all the words together, so the results have any of them;
+- `browse`: no query; results are ordered grants first, active first, newest first.
+
+A query with `"quoted phrases"` or `-excluded` words is read with Postgres `websearch_to_tsquery` (same fallback,
+which ignores the exclusions).
+
+Each result may include `match: { reason, evidence[], snippet }`. `reason` and `evidence` name which stored fields
+matched. `snippet` is about 30 words of the abstract around the matched words, each matched word wrapped in `⟦` and
+`⟧` (prefixed or followed by `…` when cut), or null when the abstract has no query word or the record's only text
+is its title.
 
 ## `GET /api/projects/:id`
 
@@ -58,8 +112,8 @@ types, `fundingByYear` (grants), `topics`, team, `relatedProjectIds`. 404 if unk
 
 ## `GET /api/projects?ids=a,b,c`
 
-Returns `Project[]` for the given ids, in order. `GET /api/projects/featured` and `GET /api/researchers/:id` also
-exist but the current frontend does not use them.
+Returns `Project[]` for the given ids, in order. `GET /api/projects/featured` also exists, but the current frontend
+doesn't use it.
 
 ## `GET /api/researchers/:id`
 
@@ -78,11 +132,24 @@ Returns `ResearcherProfile`, or `404` when the id is unknown **or no stored reco
 
 `GET /api/researchers/:id/projects` and `GET /api/researchers/:id/collaborators` return just those lists.
 
+## `GET /api/researchers`
+
+The People directory. Returns `PeopleResponse`: researchers matching `q` (up to 200 characters), filtered by
+`college` (unknown ids are ignored) and `kind`, sorted by `records` (default) or `name`, one page at a time.
+`colleges` gives people per college for the current query, ignoring the college filter.
+
+Each word of `q` must start a word of the person's name or department, in any order: "Grace Ma" and "ma grace" find
+"Grace X. Ma", and "ma" doesn't find "Thomas". With `q` and the default sort, the exact name comes first, then the
+most similar name, then most records. When the backend's Postgres has `pg_trgm` (installed at startup when allowed)
+and no name matches every word, names similar to `q` match instead, so a typo like "Grace Mah" still finds her.
+
 ## `GET /api/researchers/:id/compatibility`
 
 Returns active compatibility matches for a researcher. Matches include only active grants and active clinical
 trials, exclude records already on the profile, and are scored deterministically from shared stored topics,
-subject terms, and college links. The score is a discovery aid, not a recommendation; no model call is made.
+subject terms, and college links. Funder-defined topics and rarer subject-term overlap are weighted more heavily;
+a college link cannot produce a match without domain evidence. The score is a discovery aid, not a recommendation;
+no model call is made.
 Each match includes the complete source-backed `Project` and the reasons used for its score.
 
 ## `GET /api/demo-profile`
@@ -90,6 +157,48 @@ Each match includes the complete source-backed `Project` and the reasons used fo
 Returns the synthetic `Maya Patel` demo profile. Her interests are fictional, but compatible records are
 calculated from the current database. The response is explicitly marked `isSynthetic: true` and must not be
 presented as a real Temple researcher.
+
+## `POST /api/for-you` and matching endpoints
+
+`ProfileInput` contains an optional college, up to 8 known topic ids and up to 12 terms (each 1–40 characters).
+`/api/for-you` returns up to six recruiting trials, active grants and deterministic collaborator matches. Scores,
+reasons and citations come from stored project topics, colleges, terms and team records; no model is called.
+These endpoints, `/api/demo-profile` and the assistant's profile-based retrieval use one scoring function
+(`_score` in `backend/app/compatibility.py`):
+
+- Topics: up to 24 each (60 total), less when the record's topic comes only from keywords.
+- Interests (`terms`) match as whole phrases ("machine learning" never matches "machine … learning"), 2 to 8 points
+  each by rarity across the whole database, 1.5× for a multi-word phrase (32 total). Generic words (disease, therapy,
+  learning, …) and words in more than 8% of records don't count on their own.
+- A record needs a shared topic, a shared multi-word phrase or two shared interests; a college link alone never
+  matches. Same college +8; for people, a different college +5. Scores under 12 are not returned.
+- `band` puts a score in words: `Strong overlap` (40 or more), `Good overlap` (24 or more), `Some overlap` (12 or
+  more). The number is a capped sum of evidence, not a percentage, so show the band rather than "N/100". The cutoffs
+  are `STRONG_OVERLAP` and `GOOD_OVERLAP` in `compatibility.py`, with the score spread they came from.
+
+**One people ranking.** `rank_people` ranks everyone once per profile and data version, and every surface reads it:
+`ForYou.collaborators` is its first six, `ForYou.collaboratorTotal` its length, `POST /api/for-you/people?page=N`
+returns it 20 at a time (`PeopleMatches`), and `POST /api/match/researcher/:id` returns the person's `score`,
+`band` and `rank` from it, with `total` = the ranking's length. So a person shows the same score, band and rank
+everywhere.
+
+- Eligible records: an active grant or trial, any publication (imported from 2024 on), or a grant that ended in the
+  last two calendar years (parent records only). A person is ranked when at least one eligible record scores 12 or
+  more; their score is their best eligible record's score, and their college reason compares their own college with
+  the profile's.
+- Order: score, then how many of their records match, then their latest year, then researcher id. A name never
+  breaks a tie.
+- `ResearcherMatch.eligible` is `false` when none of the person's records is eligible; then `score` is 0, `band` and
+  `rank` are `null` and `records` is empty, and the page says they aren't in your matches rather than showing a
+  number. An eligible person whose records don't match gets the same zeros with `eligible: true`.
+
+Reasons use fixed wording that `frontend/src/lib/matchReasons.ts` parses: `Shares <topics>`, `Supported by
+funder-defined topic data` / `Supported by stored keyword topic data`, `Shares stored terms: <phrases>`, `Linked to
+the same college`, `Expands beyond your college`.
+
+`POST /api/match/researcher/:id` returns that researcher's place in the ranking and up to six of their eligible
+records that share profile topics or terms, best first, or 404 for an unknown researcher. `POST /api/match/projects` accepts up to 50 project ids and returns
+only positive matches; unknown ids are ignored.
 
 ## `GET /api/colleges` and `GET /api/colleges/:id`
 
@@ -109,13 +218,31 @@ college, which appear on no college page). Every figure is a SQL aggregate.
 Returns `{"ok": true}` after the API can query its database. Reverse proxies should use this endpoint
 for readiness checks.
 
+## `GET /api/summaries/:kind/:id`
+
+`kind` is `project`, `researcher`, `topic` or `college`. Returns `AISummary`: two or three sentences and up to three
+key points written by the configured model (`AI_PROVIDER` / `AI_MODEL`) from the stored records behind that page.
+The backend picks the records with SQL (the record itself; a researcher's or a topic's or college's twelve most
+recent, active first), numbers them, and keeps only `[n]` citations that point at them; a reply without a valid
+citation comes back as `available: false`. `citations` lists every record sent, numbered as in the text. Summaries
+are cached in the `ai_summaries` table until the summarized records, the prompt or the model change. A model error
+returns `available: false` with a `message` (not cached). 404 for an unknown id, 422 for an unknown kind.
+
 ## `POST /api/assistant`
 
-Body: `{ messages: { role: "user" | "assistant", text: string }[] }` (1–8 messages, each up to 4000 characters, last one from the user).
-Returns `{ reply: string, sources: { n: number, id: string, title: string, label: string, url: string }[] }`.
+Body: `AssistantRequest`, i.e. `{ messages: { role: "user" | "assistant", text: string }[], profile?: ProfileInput }`
+(1–8 messages, each up to 4000 characters, last one from the user). Returns `AssistantReply`:
+`{ mode, summary, records, people, followUps }`.
 
-- The backend searches stored records first. If nothing matches, it replies "nothing found" without calling the model.
-- The model sees only the retrieved records and cites them inline as `[n]`. `sources` lists each cited record; citations that don't point at a retrieved record are dropped, and an answer with no valid citation is replaced with a "couldn't answer" reply.
+- The backend searches stored records first, including the optional profile's topics and terms. If nothing matches,
+  it returns `mode: "none"` without calling the model.
+- The model sees only the retrieved records. It answers in `mode: "research"` (`records`: the cited records, each a
+  full `Project` from the database plus a one-line `takeaway`) or `mode: "people"` (`people`: researchers on those
+  records, with their records and totals read from the database plus a short `focus`). The list for the other mode
+  is empty.
+- The `summary` cites records inline as `[n]`. Citations that don't point at a record or person shown are dropped,
+  people who aren't on a retrieved record's team are dropped, and a summary left with no valid citation becomes a
+  `mode: "none"` "couldn't answer" reply. `followUps` suggests next questions.
 - `503` with `{ detail }` when the AI service is unavailable or the API key is missing or rejected. The detail is safe to show users.
 - Model calls live only in `backend/app/ai.py`. `AI_PROVIDER=anthropic` is the documented default; Gemini remains supported when explicitly configured. Set `AI_TIMEOUT_SECONDS` to control the provider timeout.
 

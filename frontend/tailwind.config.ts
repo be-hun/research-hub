@@ -18,6 +18,11 @@ const config: Config = {
         "cherry-tint": "#F8E9EC",
         "active-ink": "#1B6B44",
         "active-bg": "#E5F3EB",
+        "soon-ink": "#8A4B00",
+        "soon-bg": "#FCF0DC",
+        "running-ink": "#1F4E8C",
+        "running-bg": "#E6EEF8",
+        "stopped-ink": "#8C3B3B",
       },
       fontFamily: {
         serif: ["var(--font-serif)", "Georgia", "serif"],
@@ -31,7 +36,7 @@ const config: Config = {
         lead: ["19px", { lineHeight: "30px" }],
         body: ["16px", { lineHeight: "26px" }],
         small: ["14px", { lineHeight: "21px" }],
-        tiny: ["12px", { lineHeight: "17px", letterSpacing: "0.01em" }],
+        tiny: ["14px", { lineHeight: "20px" }], // the smallest text on the site (accessibility review: 14px minimum)
       },
       maxWidth: { page: "1240px" },
       boxShadow: { card: "0 1px 2px rgba(28,27,25,0.04), 0 4px 16px rgba(28,27,25,0.04)" },

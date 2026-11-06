@@ -2,18 +2,42 @@ import type {
   CollegeDashboard,
   CollegeSummary,
   DemoResearcherProfile,
+  ForYou,
   Overview,
-  PeopleParams,
+  PeopleMatches,
   PeopleResponse,
+  ProfileInput,
   Project,
   ProjectDetail,
+  ProjectMatches,
+  ProjectMatchRequest,
+  ResearcherMatch,
   ResearcherProfile,
   ResearcherCompatibility,
-  SearchParams,
   SearchResponse,
   TopicDetail,
   TopicSummary,
 } from "./types";
+
+// Request parameters the pages build. Response types are generated into ./types from backend/app/models.py.
+export interface SearchParams {
+  q: string;
+  page?: number;
+  colleges?: string[];
+  funders?: string[];
+  status?: string[];
+  topics?: string[];
+  kinds?: string[];
+  funding?: string[];
+}
+
+export interface PeopleParams {
+  q?: string;
+  page?: number;
+  colleges?: string[];
+  kind?: string;
+  sort?: string;
+}
 
 // The backend API (see backend/ and docs/api.md).
 // Server components call the API directly (API_URL, read at runtime). The browser calls /api/... on the site's own
@@ -33,6 +57,17 @@ async function get<T>(path: string): Promise<T> {
 async function getOrNull<T>(path: string): Promise<T | null> {
   const res = await fetch(`${API_URL}${path}`, { cache: "no-store" });
   if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`${path} failed: ${res.status}`);
+  return res.json();
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
   if (!res.ok) throw new Error(`${path} failed: ${res.status}`);
   return res.json();
 }
@@ -61,6 +96,17 @@ export const getResearcher = (id: string) => getOrNull<ResearcherProfile>(`/api/
 export const getResearcherCompatibility = (id: string) =>
   get<ResearcherCompatibility>(`/api/researchers/${encodeURIComponent(id)}/compatibility`);
 export const getDemoProfile = () => get<DemoResearcherProfile>("/api/demo-profile");
+// Demo-account personalization. Each takes the signed-in profile's interests; nothing is stored server-side.
+export const getForYou = (profile: ProfileInput) => post<ForYou>("/api/for-you", profile);
+/** Everyone who shares the profile's interests, 20 to a page, in the For-you order. `page` starts at 1. */
+export const getForYouPeople = (profile: ProfileInput, page = 1) =>
+  post<PeopleMatches>(`/api/for-you/people?page=${Math.max(1, Math.floor(page))}`, profile);
+export const matchResearcher = (id: string, profile: ProfileInput) =>
+  post<ResearcherMatch>(`/api/match/researcher/${encodeURIComponent(id)}`, profile);
+export const matchProjects = (profile: ProfileInput, ids: string[]) =>
+  ids.length
+    ? post<ProjectMatches>("/api/match/projects", { profile, ids } satisfies ProjectMatchRequest)
+    : Promise.resolve<ProjectMatches>({ matches: [] });
 export const getColleges = () => get<CollegeSummary[]>("/api/colleges");
 export const getCollege = (id: string) => getOrNull<CollegeDashboard>(`/api/colleges/${encodeURIComponent(id)}`);
 

@@ -1,15 +1,16 @@
 import threading
-from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import ai, assistant, compatibility, config, dashboards, explore, models, queries, researchers
+from app import ai, assistant, compatibility, config, dashboards, explore, models, queries, researchers, summaries
 from app.colleges import COLLEGE_NAMES
-from app.db import connect, init_schema
+from app.db import Connection, Pool, connect, ensure_search_extensions, init_schema
 
 
-def create_app(db_path: Path | str | None = None) -> FastAPI:
+def create_app(database_url: str | None = None, *, connect_db: bool = True) -> FastAPI:
+    """connect_db=False builds the routes without touching a database (the contract generator only reads them)."""
     app = FastAPI(title="Research Hub API")
     app.add_middleware(
         CORSMiddleware,
@@ -19,36 +20,35 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    path = db_path or config.DB_PATH
-    conn = connect(path)
-    init_schema(conn)
-    app.state.db = conn
-    # Sync endpoints run on a thread pool, and a sqlite3 connection must not be used by two threads at once
-    # (concurrent requests fail with "bad parameter or other API misuse"). Each worker thread gets its own
-    # connection to the file; WAL mode lets them read concurrently. An in-memory database exists only on the
-    # shared connection, so tests keep using that one.
-    local = threading.local()
+    url = database_url or config.DATABASE_URL
+    if connect_db:
+        conn = connect(url)
+        init_schema(conn)
+        ensure_search_extensions(conn)
+        summaries.ensure_table(conn)
+        app.state.db = conn  # for setup and tests; requests use the pool
+    # Sync endpoints run on a thread pool. Each request borrows one connection and returns it when done, so a
+    # process never holds more than DB_POOL_SIZE connections to Supabase however many threads are busy.
+    app.state.pool = pool = Pool(url, config.DB_POOL_SIZE)
 
-    def db(request: Request):
-        if str(path) == ":memory:":
-            return request.app.state.db
-        thread_conn = getattr(local, "conn", None)
-        if thread_conn is None:
-            thread_conn = local.conn = connect(path)
-        return thread_conn
+    def db():
+        with pool.connection() as c:
+            yield c
+
+    DB = Annotated[Connection, Depends(db)]
 
     @app.get("/health")
     def health() -> dict:
         return {"ok": True}
 
     @app.get("/api/health")
-    def api_health(request: Request) -> dict:
-        request.app.state.db.execute("SELECT 1").fetchone()
+    def api_health(conn: DB) -> dict:
+        conn.execute("SELECT 1").fetchone()
         return {"ok": True}
 
     @app.get("/api/search")
     def search(
-        request: Request,
+        conn: DB,
         q: str = "",
         page: int = Query(1, ge=1),
         college: list[str] = Query(default=[]),
@@ -59,110 +59,162 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
         kind: list[str] = Query(default=[]),
         funding: list[str] = Query(default=[]),
     ) -> models.SearchResponse:
-        return queries.search(db(request), q, page, college, funder, verification, status, topic, kind, funding)
+        return queries.search(conn, q, page, college, funder, verification, status, topic, kind, funding)
 
     @app.get("/api/overview")
-    def overview(request: Request) -> models.Overview:
-        return explore.overview(db(request))
+    def overview(conn: DB) -> models.Overview:
+        return explore.overview(conn)
 
     @app.get("/api/topics")
-    def topics(request: Request) -> list[models.TopicSummary]:
-        return explore.overview(db(request)).topics
+    def topics(conn: DB) -> list[models.TopicSummary]:
+        return explore.overview(conn).topics
 
     @app.get("/api/topics/{topic_id}")
-    def topic(request: Request, topic_id: str) -> models.TopicDetail:
-        detail = explore.topic_detail(db(request), topic_id)
+    def topic(conn: DB, topic_id: str) -> models.TopicDetail:
+        detail = explore.topic_detail(conn, topic_id)
         if not detail:
             raise HTTPException(404, "Topic not found")
         return detail
 
     @app.get("/api/projects/featured")
-    def featured(request: Request) -> list[models.Project]:
-        return queries.featured(db(request))
+    def featured(conn: DB) -> list[models.Project]:
+        return queries.featured(conn)
 
     @app.get("/api/projects/{project_id}")
-    def project(request: Request, project_id: str) -> models.ProjectDetail:
-        detail = queries.project_detail(db(request), project_id)
+    def project(conn: DB, project_id: str) -> models.ProjectDetail:
+        detail = queries.project_detail(conn, project_id)
         if not detail:
             raise HTTPException(404, "Project not found")
         return detail
 
     @app.get("/api/projects")
-    def projects(request: Request, ids: str = "") -> list[models.Project]:
-        return queries.projects_by_ids(db(request), [i for i in ids.split(",") if i])
+    def projects(conn: DB, ids: str = "") -> list[models.Project]:
+        return queries.projects_by_ids(conn, [i for i in ids.split(",") if i])
 
     @app.get("/api/researchers")
     def people(
-        request: Request,
+        conn: DB,
         q: str = Query("", max_length=200),
         page: int = Query(1, ge=1),
         college: list[str] = Query(default=[]),
         kind: str | None = None,
         sort: str = "records",
     ) -> models.PeopleResponse:
-        return researchers.directory(db(request), q, [c for c in college if c in COLLEGE_NAMES], kind, sort, page)
+        return researchers.directory(conn, q, [c for c in college if c in COLLEGE_NAMES], kind, sort, page)
 
     @app.get("/api/researchers/{researcher_id}")
-    def researcher(request: Request, researcher_id: str) -> models.ResearcherProfile:
-        profile = researchers.profile(db(request), researcher_id)
+    def researcher(conn: DB, researcher_id: str) -> models.ResearcherProfile:
+        profile = researchers.profile(conn, researcher_id)
         if not profile:
             raise HTTPException(404, "Researcher not found")
         return profile
 
     @app.get("/api/researchers/{researcher_id}/projects")
-    def researcher_projects(request: Request, researcher_id: str) -> list[models.ResearcherProject]:
-        rows = researchers.projects(db(request), researcher_id)
+    def researcher_projects(conn: DB, researcher_id: str) -> list[models.ResearcherProject]:
+        rows = researchers.projects(conn, researcher_id)
         if rows is None:
             raise HTTPException(404, "Researcher not found")
         return rows
 
     @app.get("/api/researchers/{researcher_id}/collaborators")
-    def researcher_collaborators(request: Request, researcher_id: str) -> list[models.ResearcherCollaborator]:
-        if researchers.projects(db(request), researcher_id) is None:
+    def researcher_collaborators(conn: DB, researcher_id: str) -> list[models.ResearcherCollaborator]:
+        if researchers.projects(conn, researcher_id) is None:
             raise HTTPException(404, "Researcher not found")
-        return researchers.collaborators(db(request), researcher_id)
+        return researchers.collaborators(conn, researcher_id)
 
     @app.get("/api/researchers/{researcher_id}/compatibility")
-    def researcher_compatibility(request: Request, researcher_id: str) -> models.ResearcherCompatibility:
-        result = compatibility.for_researcher(db(request), researcher_id)
+    def researcher_compatibility(conn: DB, researcher_id: str) -> models.ResearcherCompatibility:
+        result = compatibility.for_researcher(conn, researcher_id)
         if not result:
             raise HTTPException(404, "Researcher not found")
         return result
 
     @app.get("/api/demo-profile")
-    def demo_profile(request: Request) -> models.DemoResearcherProfile:
-        return compatibility.demo_profile(db(request))
+    def demo_profile(conn: DB) -> models.DemoResearcherProfile:
+        return compatibility.demo_profile(conn)
+
+    @app.post("/api/for-you")
+    def for_you(conn: DB, profile: models.ProfileInput) -> models.ForYou:
+        return compatibility.for_you(conn, profile)
+
+    @app.post("/api/for-you/people")
+    def for_you_people(
+        conn: DB, profile: models.ProfileInput, page: int = Query(1, ge=1)
+    ) -> models.PeopleMatches:
+        return compatibility.people_matches(conn, profile, page)
+
+    @app.post("/api/match/researcher/{researcher_id}")
+    def match_researcher(
+        conn: DB, researcher_id: str, profile: models.ProfileInput
+    ) -> models.ResearcherMatch:
+        result = compatibility.match_researcher(conn, researcher_id, profile)
+        if result is None:
+            raise HTTPException(404, "Researcher not found")
+        return result
+
+    @app.post("/api/match/projects")
+    def match_projects(conn: DB, body: models.ProjectMatchRequest) -> models.ProjectMatches:
+        return compatibility.match_projects(conn, body.profile, body.ids)
 
     @app.get("/api/colleges")
-    def college_list(request: Request) -> list[models.CollegeSummary]:
-        return dashboards.colleges(db(request))
+    def college_list(conn: DB) -> list[models.CollegeSummary]:
+        return dashboards.colleges(conn)
 
     @app.get("/api/colleges/{college_id}")
-    def college(request: Request, college_id: str) -> models.CollegeDashboard:
-        detail = dashboards.dashboard(db(request), college_id)
+    def college(conn: DB, college_id: str) -> models.CollegeDashboard:
+        detail = dashboards.dashboard(conn, college_id)
         if not detail:
             raise HTTPException(404, "College not found")
         return detail
 
     @app.get("/api/colleges/{college_id}/projects")
     def college_projects(
-        request: Request,
+        conn: DB,
         college_id: str,
         page: int = Query(1, ge=1),
         kind: list[str] = Query(default=[]),
     ) -> models.SearchResponse:
         if college_id not in COLLEGE_NAMES:
             raise HTTPException(404, "College not found")
-        return queries.search(db(request), "", page, [college_id], kinds=kind)
+        return queries.search(conn, "", page, [college_id], kinds=kind)
+
+    @app.get("/api/summaries/{kind}/{ref_id}")
+    def summary(kind: models.SummaryKind, ref_id: str) -> models.AISummary:
+        # The model call must not occupy one of the small request-pool connections.
+        result = summaries.summarize_pooled(app.state.pool, kind, ref_id)
+        if result is None:
+            raise HTTPException(404, "Nothing to summarize with that id")
+        return result
 
     @app.post("/api/assistant")
-    def assistant_reply(request: Request, body: models.AssistantRequest) -> models.AssistantReply:
+    def assistant_reply(body: models.AssistantRequest) -> models.AssistantReply:
         try:
-            return assistant.answer(db(request), body.messages)
+            with app.state.pool.connection() as conn:
+                prepared = assistant.prepare(conn, body.messages, body.profile)
+            if not prepared.records:
+                return assistant._none(assistant.NOTHING_FOUND, assistant.TRY_INSTEAD)
+            result = ai.grounded_answer(assistant.SYSTEM, prepared.api_messages)
+            with app.state.pool.connection() as conn:
+                return assistant.finish(conn, prepared, result, body.profile)
         except ai.AIUnavailable as exc:
             raise HTTPException(503, str(exc)) from exc
 
     return app
 
 
-app = create_app()
+def _warm(app: FastAPI) -> None:
+    """Build the matching corpus in the background so the first visitor after a deploy doesn't wait for it."""
+    try:
+        with app.state.pool.connection() as conn:
+            compatibility.corpus(conn)
+    except Exception:  # noqa: BLE001  the first request builds it instead
+        pass
+
+
+def __getattr__(name: str):
+    """`uvicorn app.main:app` builds the app on first access, so importing create_app never opens a connection."""
+    if name == "app":
+        globals()["app"] = created = create_app()
+        threading.Thread(target=_warm, args=(created,), daemon=True).start()
+        return created
+    raise AttributeError(name)

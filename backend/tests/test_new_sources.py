@@ -97,6 +97,14 @@ def test_openalex_normalize():
     assert data["project_colleges"] == [{"project_id": "pub-W1", "college": "science-tech"}]
 
 
+def test_openalex_prefers_full_raw_author_name():
+    paper = work()
+    paper["authorships"][0]["author"]["display_name"] = "X. Grace"
+    paper["authorships"][0]["raw_author_name"] = "Grace X. Ma"
+    data = openalex.normalize({"works": [paper], "funders": OPENALEX_FUNDERS})
+    assert data["project_team"][0]["name"] == "Grace X. Ma"
+
+
 def test_usaspending_keeps_research_and_yearly_money():
     keep = usa_award()
     nih = usa_award(**{"Award ID": "R01X", "Awarding Sub Agency": "National Institutes of Health",
@@ -107,6 +115,19 @@ def test_usaspending_keeps_research_and_yearly_money():
     (p,) = data["projects"]
     assert p["agency"] == "DOD" and p["title"] == "Battery Materials for Soldiers" and p["is_active"] == 1
     assert [(y["fiscal_year"], y["award_amount"]) for y in data["award_years"]] == [(2023, 600000), (2025, 400000)]
+
+
+def test_usaspending_title_is_a_short_sentence_and_restores_acronyms():
+    award = usa_award(**{
+        "Description": "A VERY LONG NASA AI RESEARCH TITLE THAT SHOULD BE SHORTENED AT A WORD BOUNDARY "
+        "BEFORE IT BECOMES TOO LONG AND KEEP GOING WITH MORE WORDS FOR THE DEMONSTRATION. "
+        "This is the full abstract.",
+    })
+    (project,) = usaspending.normalize([award], 2022)["projects"]
+    assert project["title"].endswith("…")
+    assert len(project["title"]) <= 121
+    assert "NASA" in project["title"] and "AI" in project["title"]
+    assert project["abstract"].endswith("full abstract.")
 
 
 def test_funder_classification():
@@ -122,6 +143,7 @@ def test_keyword_topics():
     assert topics_from_text("Ketamine for Opioid Withdrawal", "Opioid Use Disorder") == ["addiction"]
     assert topics_from_text("Stem cell therapy", "") == []  # 'stem' alone is not STEM education
     assert topics_from_text("Untitled", "") == []
+    assert topics_from_text("Computed Tomography", "computed tomography") == []
 
 
 def test_merge_matches_people_across_sources_and_assigns_topics():

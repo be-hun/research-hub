@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import AISummary from "@/components/AISummary";
 import AwardRow from "@/components/AwardRow";
 import YearBars from "@/components/charts/YearBars";
+import SaveButton from "@/components/SaveButton";
 import Section from "@/components/Section";
 import { CollegeTag, KindTag, SourceTag, StatusChip } from "@/components/Tags";
 import { getProject, getProjects } from "@/lib/api";
-import { money, shortDate } from "@/lib/format";
+import { KIND_LABELS } from "@/lib/colleges";
+import { isDemoSignedIn } from "@/lib/demo";
+import { isStaleTrialStatus, money, shortDate } from "@/lib/format";
 import { FUNDER_SERIES } from "@/lib/series";
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
@@ -34,12 +38,19 @@ export default async function ProjectPage({ params }: { params: { id: string } }
 
   return (
     <main className="max-w-page mx-auto px-4 sm:px-6 pt-8 space-y-10">
-      <nav aria-label="Breadcrumb" className="text-small text-ink-3">
-        <Link href={`/search?kind=${project.kind}`} className="hover:text-ink">
-          {{ award: "Grants", trial: "Clinical trials", publication: "Publications" }[project.kind]}
-        </Link>{" "}
-        <span aria-hidden="true">/</span> <span className="text-ink-2">{project.facts[project.facts.length - 1]?.value}</span>
-      </nav>
+      <div className="flex items-start justify-between gap-4">
+        <nav aria-label="Breadcrumb" className="text-small text-ink-3 min-w-0 break-words">
+          <Link href={`/search?kind=${project.kind}`} className="hover:text-ink">
+            {{ award: "Grants", trial: "Clinical trials", publication: "Publications" }[project.kind]}
+          </Link>{" "}
+          <span aria-hidden="true">/</span> <span className="text-ink-2">{project.facts[project.facts.length - 1]?.value}</span>
+        </nav>
+        {isDemoSignedIn() && (
+          <SaveButton
+            item={{ kind: "record", id: project.id, title: project.title, detail: [KIND_LABELS[project.kind], project.pi.name].filter(Boolean).join(" · ") }}
+          />
+        )}
+      </div>
 
       <header className="max-w-4xl">
         <div className="flex flex-wrap items-center gap-3 mb-3">
@@ -77,7 +88,11 @@ export default async function ProjectPage({ params }: { params: { id: string } }
             <dt className="text-tiny text-ink-3 mb-1">{f.label}</dt>
             <dd className="text-small font-medium break-words">
               {f.label === "Status" ? (
-                <StatusChip label={f.value} active={project.active} />
+                <StatusChip
+                  label={f.value}
+                  active={project.active}
+                  stale={project.kind === "trial" && isStaleTrialStatus(f.value, project.endYear)}
+                />
               ) : f.href ? (
                 <a href={f.href} target="_blank" rel="noreferrer" className="num text-cherry underline underline-offset-2">
                   {f.value} ↗
@@ -92,6 +107,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
 
       <div className="grid lg:grid-cols-[1.6fr_1fr] gap-12">
         <div className="space-y-10">
+          <AISummary kind="project" id={project.id} about={`this ${noun}`} />
           <Section title={`About this ${noun}`}>
             <div className="space-y-4 text-body text-ink-2 max-w-[70ch]">
               <p className="text-lead text-ink">{project.summary}</p>

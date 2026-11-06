@@ -43,7 +43,7 @@ export default async function ExplorePage() {
               .filter((c) => c.funding > 0)
               .map((c) => ({
                 key: c.college,
-                label: COLLEGES[c.college].name,
+                label: COLLEGES[c.college].short, // the same names as Home's funding chart
                 href: `/search?college=${c.college}`,
                 color: COLLEGES[c.college].color,
                 value: c.funding,
@@ -63,6 +63,11 @@ export default async function ExplorePage() {
                 ))
                 .reduce<React.ReactNode[]>((acc, el, i) => (i ? [...acc, ", ", el] : [el]), [])}
               .
+            </p>
+          )}
+          {o.unassigned && (o.unassigned.awards > 0 || o.unassigned.funding > 0 || o.unassigned.trials > 0 || o.unassigned.publications > 0) && (
+            <p className="text-small text-ink-3 mt-3">
+              Not assigned to a college: {money(o.unassigned.funding)} across {o.unassigned.awards.toLocaleString()} grants.
             </p>
           )}
         </Section>

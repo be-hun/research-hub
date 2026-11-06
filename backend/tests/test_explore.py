@@ -2,16 +2,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from ingest import clinical_trials, nih_reporter, nsf_awards, openalex
+from ingest import clinical_trials, nih_reporter, nsf_awards, openalex, usaspending
 from ingest.load import load, merge
-from tests.test_new_sources import OPENALEX_FUNDERS, trial, work
+from tests.test_new_sources import OPENALEX_FUNDERS, trial, usa_award, work
 from tests.test_nih_reporter import record
 from tests.test_nsf_awards import award
 
 
 @pytest.fixture
 def client():
-    app = create_app(":memory:")
+    app = create_app()
     nih = nih_reporter.normalize([
         record(),  # NIA, medicine, active, FY2025 $500K
         record(appl_id=2, fiscal_year=2024, award_amount=400000),
@@ -90,3 +90,22 @@ def test_project_detail_has_yearly_funding_and_topics(client):
     assert d["fundingByYear"] == [{"fiscalYear": 2024, "amount": 400000}, {"fiscalYear": 2025, "amount": 500000}]
     assert d["topics"] == [{"id": "aging", "name": "Aging & Alzheimer's"}]
     assert d["active"] is True and d["agency"] == "NIH"
+
+
+def test_college_rows_plus_unassigned_add_up_to_the_topic_header():
+    """Every record here has one college or none, so nothing is counted in two college rows."""
+    app = create_app()
+    nsf = nsf_awards.normalize([award()])  # CBET: Engineering & energy, College of Engineering, $300K
+    army = usaspending.normalize([usa_award()], 2022)  # a battery grant: Engineering & energy, no college, $1M
+    load(app.state.db, merge([nsf, army]))
+    client = TestClient(app)
+
+    t = client.get("/api/topics/engineering").json()
+    assert t["unassigned"] == {"awards": 1, "funding": 1000000, "trials": 0, "publications": 0}
+    assert t["topic"]["funding"] == sum(c["funding"] for c in t["byCollege"]) + t["unassigned"]["funding"] == 1300000
+    assert t["topic"]["awards"] == sum(c["awards"] for c in t["byCollege"]) + t["unassigned"]["awards"]
+    assert [p["records"] for p in t["people"]] == [1, 1]
+
+    o = client.get("/api/overview").json()
+    assert o["unassigned"]["awards"] == 1
+    assert o["totals"]["awards"] == sum(c["awards"] for c in o["byCollege"]) + o["unassigned"]["awards"]

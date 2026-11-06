@@ -1,13 +1,20 @@
-"""Response models. Field names mirror frontend/src/lib/types.ts exactly (camelCase)."""
+"""Response models: the single source of truth for the API contract (camelCase field names).
+
+frontend/src/lib/types.ts is generated from this file by `uv run python -m app.contract`, and `#` comments here
+carry over to it, so document fields here. A test fails when types.ts is stale.
+"""
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.topics import BY_ID
 
 CollegeId = Literal["medicine", "public-health", "science-tech", "engineering", "business", "media", "education",
                     "liberal-arts"]
 Verification = Literal["faculty-confirmed", "public-award-record", "public-registry-record", "public-publication-record"]
-Kind = Literal["award", "trial", "publication"]
+Kind = Literal["award", "trial", "publication"]  # grant, clinical trial, publication
+MatchBand = Literal["Strong overlap", "Good overlap", "Some overlap"]  # a match score in words (compatibility.band_for)
 
 
 class PI(BaseModel):
@@ -23,6 +30,7 @@ class Source(BaseModel):
 class Match(BaseModel):
     reason: str
     evidence: list[str]
+    snippet: str | None = None  # search only: ~30 words of the abstract around the matched words, each one in ⟦ ⟧
 
 
 class Project(BaseModel):
@@ -33,7 +41,7 @@ class Project(BaseModel):
     colleges: list[CollegeId]
     verification: Verification
     pi: PI
-    funder: str
+    funder: str  # grants: "NIH R01"; trials: lead sponsor; publications: first funders
     agency: str  # grants: NIH, NSF, DOD...; trials: lead sponsor; publications: journal
     active: bool  # the source's own flag; for grants not proof a study is recruiting
     statusLabel: str  # "Active", "Recruiting", "Published 2025", ...
@@ -42,8 +50,8 @@ class Project(BaseModel):
     startYear: int
     endYear: int
     source: Source
-    updatedAt: str
-    match: Match | None = None
+    updatedAt: str  # ISO date
+    match: Match | None = None  # only on search results: which stored fields matched the query
 
 
 class TeamMember(BaseModel):
@@ -51,7 +59,7 @@ class TeamMember(BaseModel):
     name: str
     role: str
     department: str
-    college: CollegeId | None  # None when the source names no department to map
+    college: CollegeId | None  # null when the source names no department to map
 
 
 class Funding(BaseModel):
@@ -89,7 +97,7 @@ class FunderRef(BaseModel):
 
 
 class ProjectDetail(Project):
-    abstract: list[str]
+    abstract: list[str]  # paragraphs
     methodologies: list[str]
     facts: list[Fact]  # the key facts for this kind of record, in display order
     funders: list[FunderRef]
@@ -101,6 +109,7 @@ class ProjectDetail(Project):
     relatedProjectIds: list[str]
 
 
+# high: one source person ID; medium: name match within one source; low: combined across sources by name.
 IdentityConfidence = Literal["high", "medium", "low"]
 
 
@@ -181,6 +190,7 @@ class ResearcherProfile(BaseModel):
 class CompatibilityMatch(BaseModel):
     project: Project
     score: int
+    band: MatchBand
     reasons: list[str]
     sharedTopics: list[TopicRef]
 
@@ -201,6 +211,7 @@ class DemoResearcherProfile(BaseModel):
     isSynthetic: bool = True
     bio: str
     interests: list[TopicRef]
+    terms: list[str]
     compatibility: ResearcherCompatibility
 
 
@@ -208,12 +219,76 @@ class CollaboratorMatch(BaseModel):
     researcherId: str
     name: str
     initials: str
-    college: CollegeId
+    college: CollegeId | None
     title: str
-    score: int
+    score: int  # their best eligible record's score
+    band: MatchBand
+    rank: int  # 1-based place in the people ranking, the same on every surface
     reasons: list[str]
-    citations: list[str]
+    citations: list[str]  # matching record ids, best first
     sharedTopics: list[str]
+
+
+class ProfileInput(BaseModel):
+    college: CollegeId | None = None
+    topics: list[str] = Field(default_factory=list, max_length=8)
+    terms: list[str] = Field(default_factory=list, max_length=12)
+
+    @field_validator("topics")
+    @classmethod
+    def known_topics(cls, value: list[str]) -> list[str]:
+        unknown = [topic for topic in value if topic not in BY_ID]
+        if unknown:
+            raise ValueError(f"unknown topic id: {unknown[0]}")
+        return value
+
+    @field_validator("terms")
+    @classmethod
+    def bounded_terms(cls, value: list[str]) -> list[str]:
+        if any(not 1 <= len(term) <= 40 for term in value):
+            raise ValueError("each term must be between 1 and 40 characters")
+        return value
+
+
+class ForYou(BaseModel):
+    trials: list[CompatibilityMatch]
+    grants: list[CompatibilityMatch]
+    collaborators: list[CollaboratorMatch]  # the first 6 of the people ranking
+    collaboratorTotal: int  # how many people share the profile's interests (the ranking's length)
+
+
+class PeopleMatches(BaseModel):
+    total: int  # everyone in the ranking
+    page: int
+    pageSize: int
+    results: list[CollaboratorMatch]  # this page of the ranking, in the same order as For you
+
+
+class ResearcherMatch(BaseModel):
+    score: int  # 0 when they are not in the ranking
+    band: MatchBand | None  # None when they are not in the ranking
+    rank: int | None  # their place in the people ranking, None when they are not in it
+    total: int  # how many people are in the ranking
+    eligible: bool  # False when none of their records is active or recent, so they can't be ranked
+    reasons: list[str]
+    sharedTopics: list[TopicRef]
+    records: list[Project]
+
+
+class ProjectMatchRequest(BaseModel):
+    profile: ProfileInput
+    ids: list[str] = Field(max_length=50)
+
+
+class ProjectMatch(BaseModel):
+    id: str
+    score: int
+    band: MatchBand
+    reasons: list[str]
+
+
+class ProjectMatches(BaseModel):
+    matches: list[ProjectMatch]
 
 
 class ChatMessage(BaseModel):
@@ -222,7 +297,8 @@ class ChatMessage(BaseModel):
 
 
 class AssistantRequest(BaseModel):
-    messages: list[ChatMessage] = Field(min_length=1, max_length=8)
+    messages: list[ChatMessage] = Field(min_length=1, max_length=40)  # only the last 8 are used, from a user turn
+    profile: ProfileInput | None = None
 
     @model_validator(mode="after")
     def ends_with_user(self):
@@ -252,12 +328,14 @@ class PersonCounts(BaseModel):
 
 
 class AssistantPerson(BaseModel):
+    researcherId: str | None = None  # their profile, /researchers/{researcherId}; null when no record links one
     name: str
     department: str
     college: CollegeId | None
     focus: str  # a few words from the model
     records: list[PersonRecord]  # retrieved records they appear on
     totals: PersonCounts  # every Temple record they appear on
+    inYourMatches: bool = False  # one of the profile's For you collaborators; false when no profile was sent
 
 
 class AssistantReply(BaseModel):
@@ -266,6 +344,7 @@ class AssistantReply(BaseModel):
     records: list[AssistantRecord]
     people: list[AssistantPerson]
     followUps: list[str]
+    searchedFor: str = ""  # one plain line saying what was retrieved, e.g. "Recruiting clinical trials · heart failure"
 
 
 class FacetValue(BaseModel):
@@ -283,9 +362,15 @@ class Facets(BaseModel):
     topics: list[FacetValue]
 
 
+# phrase: the top results contain the exact phrase; all: every result contains every word; any: no record had all
+# the words, so results have any of them; browse: no query.
+MatchMode = Literal["phrase", "all", "any", "browse"]
+
+
 class SearchResponse(BaseModel):
     query: str
     interpretedAs: str
+    matchMode: MatchMode = "browse"
     total: int
     page: int
     pageSize: int
@@ -357,6 +442,14 @@ class TopicSummary(BaseModel):
     publications: int
 
 
+class UnassignedStat(BaseModel):
+    """Records in scope with no college, so the college rows plus this one add up to the totals."""
+    awards: int
+    funding: int
+    trials: int
+    publications: int
+
+
 class Overview(BaseModel):
     totals: Totals
     sources: list[SourceSummary]
@@ -370,6 +463,7 @@ class Overview(BaseModel):
     recruiting: list[Project]
     publications: list[Project]
     crossCollege: list[Project]
+    unassigned: UnassignedStat
 
 
 class TopicPerson(BaseModel):
@@ -377,7 +471,7 @@ class TopicPerson(BaseModel):
     name: str
     college: CollegeId | None
     department: str
-    awards: int
+    records: int  # records of every kind on this topic
 
 
 class TopicDetail(BaseModel):
@@ -390,6 +484,7 @@ class TopicDetail(BaseModel):
     trials: list[Project]
     publications: list[Project]
     related: list[TopicSummary]
+    unassigned: UnassignedStat
 
 
 # ---------- colleges ----------
@@ -461,3 +556,35 @@ class PeopleResponse(BaseModel):
     sort: Literal["records", "name"]
     results: list[PersonSummary]
     colleges: list[FacetValue]  # people per college for the current query, ignoring the college filter
+
+
+# ---------- AI summaries ----------
+
+SummaryKind = Literal["project", "researcher", "topic", "college"]
+
+
+class SummaryCitation(BaseModel):
+    n: int  # the [n] used in the summary text
+    id: str  # project id
+    title: str
+    kind: Kind
+
+
+class SummaryPoint(BaseModel):
+    text: str
+    citations: list[int]  # [n] numbers, each one in `citations`
+
+
+class AISummary(BaseModel):
+    """A model-written summary of stored records, for display next to them. Never a source of facts on its own."""
+
+    kind: SummaryKind
+    id: str
+    available: bool  # false when no summary could be written; `message` says why
+    summary: str  # plain text with [n] citations; "" when unavailable
+    points: list[SummaryPoint]
+    citations: list[SummaryCitation]  # every record the model was given, numbered as in the text
+    recordCount: int
+    message: str | None
+    generatedAt: str | None  # ISO time the summary was written (it is cached until the data changes)
+    model: str | None

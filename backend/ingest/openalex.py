@@ -5,6 +5,7 @@ and work in colleges that federal award data does not cover.
 """
 
 import os
+import re
 import time
 
 from app import config  # noqa: F401  (loads backend/.env, which may hold OPENALEX_API_KEY)
@@ -75,6 +76,20 @@ def _is_temple(authorship: dict) -> bool:
                for i in authorship.get("institutions") or [])
 
 
+def _author_name(authorship: dict) -> str:
+    author = authorship.get("author") or {}
+    display = author.get("display_name") or ""
+    raw = authorship.get("raw_author_name") or ""
+    parts = display.split()
+    starts_with_initial = bool(parts and re.fullmatch(r"[A-Za-z]\.?", parts[0]))
+    raw_has_full_first = bool(raw.split() and not re.fullmatch(r"[A-Za-z]\.?", raw.split()[0]))
+    if raw and ((starts_with_initial and raw_has_full_first) or any(
+        token.isalpha() and token.islower() for token in parts
+    )):
+        return " ".join(token.title() if token.isalpha() and token.islower() else token for token in raw.split())
+    return display or raw
+
+
 def normalize(raw: dict) -> dict:
     works, funder_info = raw["works"], raw["funders"]
     projects, team, funders, colleges, researchers = [], [], [], [], {}
@@ -100,7 +115,7 @@ def normalize(raw: dict) -> dict:
 
         for pos, a in enumerate(temple_authors):
             author = a.get("author") or {}
-            name = author.get("display_name") or a.get("raw_author_name") or ""
+            name = _author_name(a)
             if not name:
                 continue
             author_id = (author.get("id") or "").rsplit("/", 1)[-1]

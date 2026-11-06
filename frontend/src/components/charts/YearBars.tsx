@@ -23,6 +23,10 @@ function niceMax(v: number): number {
   return Math.ceil(v / step) * step;
 }
 
+// The bars and the year labels under them share these spacings so they line up. Phones get tighter gaps so a label
+// like "FY26*" fits under its bar at 320px.
+const COLUMNS = "gap-[2%] px-[1%] sm:gap-[6%] sm:px-[3%]";
+
 /** Vertical bars per fiscal year, stacked when there is more than one series. One y-axis, always. */
 export default function YearBars({
   data,
@@ -68,7 +72,7 @@ export default function YearBars({
           {ticks.map((t) => (
             <div key={t} className="absolute inset-x-0 border-t border-line" style={{ bottom: `${(t / max) * 100}%` }} />
           ))}
-          <div className="absolute inset-0 flex items-end gap-[6%] px-[3%]">
+          <div className={`absolute inset-0 flex items-end ${COLUMNS}`}>
             {data.map((d, i) => (
               <button
                 key={d.year}
@@ -104,9 +108,9 @@ export default function YearBars({
 
       <div className="flex gap-3 mt-2" aria-hidden="true">
         <div className="w-12 shrink-0" />
-        <div className="flex-1 flex gap-[6%] px-[3%] text-tiny text-ink-3 num">
+        <div className={`flex-1 flex ${COLUMNS} text-tiny text-ink-3 num`}>
           {data.map((d) => (
-            <span key={d.year} className="flex-1 text-center">
+            <span key={d.year} className="flex-1 text-center whitespace-nowrap">
               FY{String(d.year).slice(2)}
               {d.note ? "*" : ""}
             </span>

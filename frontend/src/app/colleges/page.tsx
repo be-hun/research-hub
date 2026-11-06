@@ -10,7 +10,8 @@ import { PHOTOS } from "@/lib/photos";
 export const metadata: Metadata = { title: "Colleges" };
 
 export default async function CollegesPage() {
-  const colleges = await getColleges();
+  // Alphabetical, so the order never suggests a ranking.
+  const colleges = (await getColleges()).sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <main className="max-w-page mx-auto px-4 sm:px-6 pt-8 space-y-8">
@@ -21,7 +22,7 @@ export default async function CollegesPage() {
             Public grants, clinical trials and funded publications, by the college each source names. Pick a college to
             see its funding, topics, people and cross-college work.
           </p>
-          <p className="text-small text-ink-3 mt-2">Listed in a fixed order: record counts and funding are not measures of research quality.</p>
+          <p className="text-small text-ink-3 mt-2">Listed alphabetically. Record counts and funding are not measures of research quality.</p>
         </div>
         <CampusPhoto photo={PHOTOS.colleges} className="w-full md:max-w-md md:justify-self-end" aspect="aspect-[16/9]" priority />
       </header>
@@ -52,10 +53,10 @@ export default async function CollegesPage() {
                       [count(c.publications, "paper"), "since 2024"],
                       [money(c.funding), "grant money since FY2022"],
                     ].map(([v, l]) => (
-                      <div key={l}>
-                        <dt className="sr-only">{l}</dt>
+                      // The label is the term and the number its value, shown number-first: each is read once.
+                      <div key={l} className="flex flex-col-reverse">
+                        <dt className="text-tiny text-ink-3">{l}</dt>
                         <dd className="font-semibold num">{v}</dd>
-                        <dd className="text-tiny text-ink-3">{l}</dd>
                       </div>
                     ))}
                   </dl>
