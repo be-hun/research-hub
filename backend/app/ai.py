@@ -24,8 +24,9 @@ ANSWER_SCHEMA = {
         },
         "mode": {
             "type": "string",
-            "enum": ["people", "research"],
-            "description": "people: the user wants to find researchers. research: the user wants to know about the work.",
+            "enum": ["people", "research", "team"],
+            "description": "people: the user wants to find researchers. research: the user wants to know about the work. "
+                           "team: the user wants complementary collaborators for a team or grant.",
         },
         "summary": {"type": "string", "description": "One or two short sentences, at most 40 words, citing [n]."},
         "records": {
@@ -43,12 +44,15 @@ ANSWER_SCHEMA = {
         },
         "people": {
             "type": "array",
-            "description": "people mode: the most relevant Temple researchers, best first. research mode: empty.",
+            "description": "people mode: the most relevant Temple researchers, best first. team mode: up to 8 "
+                           "complementary researchers, best first, from different colleges where possible. "
+                           "research mode: empty.",
             "items": {
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Exactly as written in a record."},
-                    "focus": {"type": "string", "description": "At most 10 words: what they work on."},
+                    "focus": {"type": "string", "description": "At most 10 words: what they work on. Team mode: at "
+                                                               "most 12 words on what they bring to the team."},
                     "records": {"type": "array", "items": {"type": "integer"}},
                 },
                 "required": ["name", "focus", "records"],
@@ -129,7 +133,7 @@ def _validate_response(value: object) -> dict:
     required = {"answerable", "mode", "summary", "records", "people", "follow_ups"}
     if not required.issubset(value) or not isinstance(value["summary"], str):
         raise AIUnavailable("The assistant returned an incomplete answer. Try again.")
-    if value["mode"] not in ("people", "research"):
+    if value["mode"] not in ("people", "research", "team"):
         raise AIUnavailable("The assistant returned an invalid answer mode. Try again.")
     if not all(isinstance(value[key], list) for key in ("records", "people", "follow_ups")):
         raise AIUnavailable("The assistant returned an invalid answer. Try again.")
