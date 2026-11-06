@@ -7,6 +7,8 @@ export type Verification = "faculty-confirmed" | "public-award-record" | "public
 
 export type Kind = "award" | "trial" | "publication"; // grant, clinical trial, publication
 
+export type MatchBand = "Strong overlap" | "Good overlap" | "Some overlap"; // a match score in words (compatibility.band_for)
+
 export interface PI {
   name: string;
   department: string;
@@ -178,6 +180,7 @@ export interface ResearcherProfile {
 export interface CompatibilityMatch {
   project: Project;
   score: number;
+  band: MatchBand;
   reasons: string[];
   sharedTopics: TopicRef[];
 }
@@ -208,9 +211,11 @@ export interface CollaboratorMatch {
   initials: string;
   college: CollegeId | null;
   title: string;
-  score: number;
+  score: number; // their best eligible record's score
+  band: MatchBand;
+  rank: number; // 1-based place in the people ranking, the same on every surface
   reasons: string[];
-  citations: string[];
+  citations: string[]; // matching record ids, best first
   sharedTopics: string[];
 }
 
@@ -223,11 +228,23 @@ export interface ProfileInput {
 export interface ForYou {
   trials: CompatibilityMatch[];
   grants: CompatibilityMatch[];
-  collaborators: CollaboratorMatch[];
+  collaborators: CollaboratorMatch[]; // the first 6 of the people ranking
+  collaboratorTotal: number; // how many people share the profile's interests (the ranking's length)
+}
+
+export interface PeopleMatches {
+  total: number; // everyone in the ranking
+  page: number;
+  pageSize: number;
+  results: CollaboratorMatch[]; // this page of the ranking, in the same order as For you
 }
 
 export interface ResearcherMatch {
-  score: number;
+  score: number; // 0 when they are not in the ranking
+  band: MatchBand | null; // None when they are not in the ranking
+  rank: number | null; // their place in the people ranking, None when they are not in it
+  total: number; // how many people are in the ranking
+  eligible: boolean; // False when none of their records is active or recent, so they can't be ranked
   reasons: string[];
   sharedTopics: TopicRef[];
   records: Project[];
@@ -241,6 +258,7 @@ export interface ProjectMatchRequest {
 export interface ProjectMatch {
   id: string;
   score: number;
+  band: MatchBand;
   reasons: string[];
 }
 
@@ -384,6 +402,14 @@ export interface TopicSummary {
   publications: number;
 }
 
+/** Records in scope with no college, so the college rows plus this one add up to the totals. */
+export interface UnassignedStat {
+  awards: number;
+  funding: number;
+  trials: number;
+  publications: number;
+}
+
 export interface Overview {
   totals: Totals;
   sources: SourceSummary[];
@@ -397,6 +423,7 @@ export interface Overview {
   recruiting: Project[];
   publications: Project[];
   crossCollege: Project[];
+  unassigned: UnassignedStat;
 }
 
 export interface TopicPerson {
@@ -404,7 +431,8 @@ export interface TopicPerson {
   name: string;
   college: CollegeId | null;
   department: string;
-  awards: number;
+  records: number; // records of every kind on this topic
+  awards: number; // deprecated: the same number as records; kept until the topic page reads records
 }
 
 export interface TopicDetail {
@@ -417,6 +445,7 @@ export interface TopicDetail {
   trials: Project[];
   publications: Project[];
   related: TopicSummary[];
+  unassigned: UnassignedStat;
 }
 
 // ---------- colleges ----------

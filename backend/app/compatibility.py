@@ -5,22 +5,34 @@ explainable evidence, not a claim that two people should work together.
 
 Every endpoint (researcher compatibility, For you, the demo profile, the match endpoints and the people list) scores
 a record with the same `_score`, against one in-memory corpus of normalized record text built per data version.
-A person's score is the score of their best-matching record, wherever it is shown.
+People are ranked once, by `rank_people`: a person's points are their best eligible record's score, and For you,
+the full people list and a researcher's own page all read their score and rank from that one ranking.
 """
 
 import math
 import re
 import threading
 import unicodedata
-from collections import Counter, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 
 from app import models
-from app.db import Connection
+from app.db import Connection, Row
 from app.queries import PARENT_ONLY, STOPWORDS, _distinctive_terms, _projects
 from app.topics import BY_ID
 
 MATCH_LIMIT = 6
 MIN_MATCH_SCORE = 12
+PEOPLE_PAGE_SIZE = 20
+PEOPLE_CACHE_SIZE = 32  # rankings kept, one per (profile, data version)
+# Bands put a score in words; the number is a capped sum of evidence, not a percentage. Cutoffs from the spread of
+# people scores on the 4,004-record import (November 2026):
+#   Maya's default profile, 1,211 people, 12-52: 40+ is the top 10.1%, 24+ the top 45%.
+#   {"topics": ["addiction"], "terms": ["opioid"]}, 277 people, 14-29: none at 40, 13% at 24+.
+#   {"topics": ["cancer"], "terms": ["immunotherapy"]}, 300 people, 14-24: none at 40, 7% at 24+.
+# Strong takes several shared topics or a topic and rare phrases; 24 is one funder-defined shared topic, so sharing
+# one field the funder names is Good. A narrow one-topic profile tops out at Good, which is what its evidence says.
+STRONG_OVERLAP = 40
+GOOD_OVERLAP = 24
 DEMO_ID = "demo-maya-patel"
 DEMO_NAME = "Maya Patel"
 DEMO_COLLEGE = "engineering"
@@ -105,9 +117,21 @@ _corpus_lock = threading.Lock()
 _corpus_cache: dict[tuple, _Corpus] = {}
 
 
+def data_version(conn: Connection) -> tuple:
+    """Identifies the loaded data: the schema (one per test), the record count and the last finished import.
+
+    Every import adds an ingest_runs row, so a re-import that only changes topics or colleges is noticed too. The
+    run counts once it has finished: its row exists while the import is still loading.
+    """
+    return tuple(conn.execute("""
+        SELECT current_schema(), (SELECT COUNT(*) FROM projects),
+               (SELECT MAX(id) FROM ingest_runs WHERE error IS NULL AND finished_at IS NOT NULL)
+    """).fetchone())
+
+
 def corpus(conn: Connection) -> _Corpus:
-    """The corpus for the current data. Rebuilt when the records change (count or latest update) or the schema does."""
-    key = tuple(conn.execute("SELECT current_schema(), COUNT(*), MAX(updated_at) FROM projects").fetchone())
+    """The corpus for the current data, rebuilt when the data version changes."""
+    key = data_version(conn)
     with _corpus_lock:
         if key in _corpus_cache:
             return _corpus_cache[key]
@@ -229,6 +253,7 @@ def _record_matches(conn: Connection, scored: list[tuple[_Score, str]], limit: i
         models.CompatibilityMatch(
             project=project,
             score=s.points,
+            band=band_for(s.points),
             reasons=_reasons(s.topics, s.phrases, s.funder, s.college),
             sharedTopics=_topic_refs(s.topics),
         )
@@ -247,6 +272,23 @@ def _active_ids(conn: Connection, kinds: tuple[str, ...], trial_statuses: tuple[
         WHERE p.kind IN ({','.join('?' * len(kinds))}) AND p.is_active = 1 {status_clause} AND {PARENT_ONLY}
         ORDER BY p.id
     """, params)]
+
+
+# The records that put a person in the people ranking: an active grant or trial, any publication (they are imported
+# from 2024 on), or a grant that ended in the last two calendar years. The one definition every surface uses.
+ELIGIBLE = f"""({PARENT_ONLY} AND (
+    (p.kind IN ('award', 'trial') AND p.is_active = 1)
+    OR p.kind = 'publication'
+    OR (p.kind = 'award' AND p.end_year >= EXTRACT(YEAR FROM CURRENT_DATE) - 2)))"""
+
+
+def band_for(points: int) -> models.MatchBand:
+    """A score in words. Cutoffs: see STRONG_OVERLAP and GOOD_OVERLAP."""
+    if points >= STRONG_OVERLAP:
+        return "Strong overlap"
+    if points >= GOOD_OVERLAP:
+        return "Good overlap"
+    return "Some overlap"
 
 
 def _matches(
@@ -375,25 +417,116 @@ def _person(data: _Corpus, profile: _Profile, college: str | None, project_ids: 
     return person
 
 
+class _Ranking:
+    """Everyone with an eligible record that matches a profile, best first, and where each person stands."""
+
+    def __init__(self, people: list[tuple[_Person, Row]]):
+        self.people = people
+        self.position = {researcher["id"]: i for i, (_, researcher) in enumerate(people)}
+
+    def __len__(self) -> int:
+        return len(self.people)
+
+
+_people_lock = threading.Lock()
+_people_cache: OrderedDict[tuple, _Ranking] = OrderedDict()
+
+
+def _rank(conn: Connection, profile: models.ProfileInput) -> _Ranking:
+    key = (profile.model_dump_json(), data_version(conn))
+    with _people_lock:
+        if key in _people_cache:
+            _people_cache.move_to_end(key)
+            return _people_cache[key]
+
+    years = {r["id"]: r["latest_fy"] for r in conn.execute(f"SELECT p.id, p.latest_fy FROM projects p WHERE {ELIGIBLE}")}
+    team: dict[str, list[str]] = defaultdict(list)
+    for row in conn.execute(f"""
+        SELECT t.researcher_id, t.project_id FROM project_team t JOIN projects p ON p.id = t.project_id
+        WHERE t.researcher_id IS NOT NULL AND {ELIGIBLE}
+        ORDER BY t.researcher_id, t.project_id
+    """):
+        team[row["researcher_id"]].append(row["project_id"])
+    researchers = {row["id"]: row for row in conn.execute("SELECT id, name, college, department FROM researchers")}
+    data = corpus(conn)
+    p = _Profile(profile, data)
+    scored = []
+    for rid, project_ids in team.items():
+        if rid in researchers and (person := _person(data, p, researchers[rid]["college"], project_ids)).points:
+            scored.append((person, researchers[rid]))
+    # Best record first; ties go to the person with more matching records, then the more recent work. The id
+    # only makes the order total: a name never decides who is shown.
+    scored.sort(key=lambda item: (
+        -item[0].points,
+        -len(item[0].records),
+        -max((years.get(pid) or 0 for _, pid in item[0].records), default=0),
+        item[1]["id"],
+    ))
+    ranking = _Ranking(scored)
+    with _people_lock:
+        _people_cache[key] = ranking
+        _people_cache.move_to_end(key)
+        while len(_people_cache) > PEOPLE_CACHE_SIZE:
+            _people_cache.popitem(last=False)
+    return ranking
+
+
+def rank_people(conn: Connection, profile: models.ProfileInput) -> list[tuple[_Person, Row]]:
+    """Every researcher with an eligible record scoring at least MIN_MATCH_SCORE, best first.
+
+    A person's points are their best eligible record's `_score`. Sorted by points, then how many of their records
+    match, then their latest year, then researcher id. Cached per (profile, data version).
+    """
+    return _rank(conn, profile).people
+
+
+def _collaborator(person: _Person, researcher: Row, rank: int) -> models.CollaboratorMatch:
+    return models.CollaboratorMatch(
+        researcherId=researcher["id"],
+        name=researcher["name"],
+        initials="".join(part[0] for part in researcher["name"].split()[:2]).upper(),
+        college=researcher["college"],
+        title=researcher["department"] or "Researcher",
+        score=person.points,
+        band=band_for(person.points),
+        rank=rank,
+        reasons=person.reasons(),
+        citations=[pid for _, pid in person.records],  # best-matching record first
+        sharedTopics=[BY_ID[t].name for t in sorted(person.topics) if t in BY_ID],
+    )
+
+
+def _people_page(ranking: _Ranking, start: int, size: int) -> list[models.CollaboratorMatch]:
+    return [_collaborator(person, researcher, start + i + 1)
+            for i, (person, researcher) in enumerate(ranking.people[start:start + size])]
+
+
 def match_researcher(
     conn: Connection, researcher_id: str, profile: models.ProfileInput, limit: int = MATCH_LIMIT
 ) -> models.ResearcherMatch | None:
-    """How a profile matches one researcher: the same score the people list gives them (their best record)."""
-    row = conn.execute("SELECT id, college FROM researchers WHERE id = ?", (researcher_id,)).fetchone()
-    if not row:
+    """How a profile matches one researcher: their score and rank in the people ranking, never a separate number."""
+    if not conn.execute("SELECT 1 FROM researchers WHERE id = ?", (researcher_id,)).fetchone():
         return None
-    ids = [r["project_id"] for r in conn.execute(
-        "SELECT project_id FROM project_team WHERE researcher_id = ? ORDER BY project_id", (researcher_id,)
-    )]
-    data = corpus(conn)
-    person = _person(data, _Profile(profile, data), row["college"], ids)
+    ranking = _rank(conn, profile)
+    position = ranking.position.get(researcher_id)
+    if position is None:
+        # Anyone with a matching eligible record is ranked, so this person has no eligible record or none matches.
+        eligible = conn.execute(f"""
+            SELECT EXISTS (SELECT 1 FROM project_team t JOIN projects p ON p.id = t.project_id
+                           WHERE t.researcher_id = ? AND {ELIGIBLE})
+        """, (researcher_id,)).fetchone()[0]
+        return models.ResearcherMatch(score=0, band=None, rank=None, total=len(ranking), eligible=bool(eligible),
+                                      reasons=[], sharedTopics=[], records=[])
+    person, _ = ranking.people[position]
     best = [pid for _, pid in person.records[:limit]]
-    rows = {r["id"]: r for r in conn.execute(
-        f"SELECT * FROM projects WHERE id IN ({','.join('?' * len(best))})", best
-    )} if best else {}
+    rows = {r["id"]: r for r in conn.execute(f"SELECT * FROM projects WHERE id IN ({','.join('?' * len(best))})", best)}
     return models.ResearcherMatch(
         score=person.points,
-        reasons=person.reasons() if person.points else [],
+        band=band_for(person.points),
+        rank=position + 1,
+        total=len(ranking),
+        eligible=True,
+        reasons=person.reasons(),
         sharedTopics=_topic_refs(person.topics),
         records=_projects(conn, [rows[pid] for pid in best if pid in rows]),
     )
@@ -405,65 +538,12 @@ def match_projects(conn: Connection, profile: models.ProfileInput, ids: list[str
     data = corpus(conn)
     p = _Profile(profile, data)
     matches = [
-        models.ProjectMatch(id=pid, score=s.points, reasons=_reasons(s.topics, s.phrases, s.funder, s.college))
+        models.ProjectMatch(id=pid, score=s.points, band=band_for(s.points),
+                            reasons=_reasons(s.topics, s.phrases, s.funder, s.college))
         for pid in dict.fromkeys(ids) if pid in data.text and (s := _score(pid, data, p))
     ]
     matches.sort(key=lambda item: (-item.score, item.id))
     return models.ProjectMatches(matches=matches)
-
-
-def _collaborators(conn: Connection, profile: models.ProfileInput) -> list[models.CollaboratorMatch]:
-    # People on an active grant or trial, or on a recent paper (publications are imported from 2024 on): someone who
-    # publishes on a topic is as worth contacting as someone funded for it, and Ask can name either.
-    ids = _active_ids(conn, ("award", "trial")) + [r["id"] for r in conn.execute(
-        f"SELECT p.id FROM projects p WHERE p.kind = 'publication' AND {PARENT_ONLY} ORDER BY p.id"
-    )]
-    if not ids:
-        return []
-    data = corpus(conn)
-    p = _Profile(profile, data)
-    # Each person is scored on all of their records: the same score match_researcher gives them on their own page.
-    team: dict[str, list[str]] = defaultdict(list)
-    for row in conn.execute(f"""
-        SELECT t.project_id, t.researcher_id FROM project_team t
-        WHERE t.researcher_id IN (
-            SELECT researcher_id FROM project_team
-            WHERE project_id IN ({','.join('?' * len(ids))}) AND researcher_id IS NOT NULL
-        )
-        ORDER BY t.researcher_id, t.project_id
-    """, ids):
-        team[row["researcher_id"]].append(row["project_id"])
-    if not team:
-        return []
-    researcher_ids = sorted(team)
-    researchers = {
-        row["id"]: row for row in conn.execute(
-            f"SELECT id, name, college, department FROM researchers WHERE id IN ({','.join('?' * len(researcher_ids))})",
-            researcher_ids,
-        )
-    }
-    ranked = []
-    for rid, project_ids in team.items():
-        if rid not in researchers:
-            continue
-        person = _person(data, p, researchers[rid]["college"], project_ids)
-        if person.points:
-            ranked.append((person, researchers[rid]))
-    ranked.sort(key=lambda item: (-item[0].points, item[1]["name"].lower(), item[1]["id"]))
-    return [
-        models.CollaboratorMatch(
-            researcherId=researcher["id"],
-            name=researcher["name"],
-            initials="".join(part[0] for part in researcher["name"].split()[:2]).upper(),
-            college=researcher["college"],
-            title=researcher["department"] or "Researcher",
-            score=person.points,
-            reasons=person.reasons(),
-            citations=[pid for _, pid in person.records],  # best-matching record first
-            sharedTopics=[BY_ID[t].name for t in sorted(person.topics) if t in BY_ID],
-        )
-        for person, researcher in ranked[:MATCH_LIMIT]
-    ]
 
 
 def for_you(conn: Connection, profile: models.ProfileInput) -> models.ForYou:
@@ -476,4 +556,13 @@ def for_you(conn: Connection, profile: models.ProfileInput) -> models.ForYou:
         conn, researcher_id="", name="", profile=profile, synthetic=True,
         kinds=("award",),
     ).matches
-    return models.ForYou(trials=trials, grants=grants, collaborators=_collaborators(conn, profile))
+    ranking = _rank(conn, profile)
+    return models.ForYou(trials=trials, grants=grants, collaborators=_people_page(ranking, 0, MATCH_LIMIT),
+                         collaboratorTotal=len(ranking))
+
+
+def people_matches(conn: Connection, profile: models.ProfileInput, page: int) -> models.PeopleMatches:
+    """One page of the people ranking, in the same order and with the same ranks as For you."""
+    ranking = _rank(conn, profile)
+    return models.PeopleMatches(total=len(ranking), page=page, pageSize=PEOPLE_PAGE_SIZE,
+                                results=_people_page(ranking, (page - 1) * PEOPLE_PAGE_SIZE, PEOPLE_PAGE_SIZE))

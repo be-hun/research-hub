@@ -136,6 +136,12 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
     def for_you(conn: DB, profile: models.ProfileInput) -> models.ForYou:
         return compatibility.for_you(conn, profile)
 
+    @app.post("/api/for-you/people")
+    def for_you_people(
+        conn: DB, profile: models.ProfileInput, page: int = Query(1, ge=1)
+    ) -> models.PeopleMatches:
+        return compatibility.people_matches(conn, profile, page)
+
     @app.post("/api/match/researcher/{researcher_id}")
     def match_researcher(
         conn: DB, researcher_id: str, profile: models.ProfileInput

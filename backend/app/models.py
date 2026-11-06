@@ -14,6 +14,7 @@ CollegeId = Literal["medicine", "public-health", "science-tech", "engineering", 
                     "liberal-arts"]
 Verification = Literal["faculty-confirmed", "public-award-record", "public-registry-record", "public-publication-record"]
 Kind = Literal["award", "trial", "publication"]  # grant, clinical trial, publication
+MatchBand = Literal["Strong overlap", "Good overlap", "Some overlap"]  # a match score in words (compatibility.band_for)
 
 
 class PI(BaseModel):
@@ -188,6 +189,7 @@ class ResearcherProfile(BaseModel):
 class CompatibilityMatch(BaseModel):
     project: Project
     score: int
+    band: MatchBand
     reasons: list[str]
     sharedTopics: list[TopicRef]
 
@@ -218,9 +220,11 @@ class CollaboratorMatch(BaseModel):
     initials: str
     college: CollegeId | None
     title: str
-    score: int
+    score: int  # their best eligible record's score
+    band: MatchBand
+    rank: int  # 1-based place in the people ranking, the same on every surface
     reasons: list[str]
-    citations: list[str]
+    citations: list[str]  # matching record ids, best first
     sharedTopics: list[str]
 
 
@@ -248,11 +252,23 @@ class ProfileInput(BaseModel):
 class ForYou(BaseModel):
     trials: list[CompatibilityMatch]
     grants: list[CompatibilityMatch]
-    collaborators: list[CollaboratorMatch]
+    collaborators: list[CollaboratorMatch]  # the first 6 of the people ranking
+    collaboratorTotal: int  # how many people share the profile's interests (the ranking's length)
+
+
+class PeopleMatches(BaseModel):
+    total: int  # everyone in the ranking
+    page: int
+    pageSize: int
+    results: list[CollaboratorMatch]  # this page of the ranking, in the same order as For you
 
 
 class ResearcherMatch(BaseModel):
-    score: int
+    score: int  # 0 when they are not in the ranking
+    band: MatchBand | None  # None when they are not in the ranking
+    rank: int | None  # their place in the people ranking, None when they are not in it
+    total: int  # how many people are in the ranking
+    eligible: bool  # False when none of their records is active or recent, so they can't be ranked
     reasons: list[str]
     sharedTopics: list[TopicRef]
     records: list[Project]
@@ -266,6 +282,7 @@ class ProjectMatchRequest(BaseModel):
 class ProjectMatch(BaseModel):
     id: str
     score: int
+    band: MatchBand
     reasons: list[str]
 
 
@@ -415,6 +432,14 @@ class TopicSummary(BaseModel):
     publications: int
 
 
+class UnassignedStat(BaseModel):
+    """Records in scope with no college, so the college rows plus this one add up to the totals."""
+    awards: int
+    funding: int
+    trials: int
+    publications: int
+
+
 class Overview(BaseModel):
     totals: Totals
     sources: list[SourceSummary]
@@ -428,6 +453,7 @@ class Overview(BaseModel):
     recruiting: list[Project]
     publications: list[Project]
     crossCollege: list[Project]
+    unassigned: UnassignedStat
 
 
 class TopicPerson(BaseModel):
@@ -435,7 +461,8 @@ class TopicPerson(BaseModel):
     name: str
     college: CollegeId | None
     department: str
-    awards: int
+    records: int  # records of every kind on this topic
+    awards: int  # deprecated: the same number as records; kept until the topic page reads records
 
 
 class TopicDetail(BaseModel):
@@ -448,6 +475,7 @@ class TopicDetail(BaseModel):
     trials: list[Project]
     publications: list[Project]
     related: list[TopicSummary]
+    unassigned: UnassignedStat
 
 
 # ---------- colleges ----------
