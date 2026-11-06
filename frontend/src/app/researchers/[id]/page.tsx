@@ -5,7 +5,6 @@ import { notFound } from "next/navigation";
 import AISummary from "@/components/AISummary";
 import CountBars from "@/components/charts/CountBars";
 import CompatibilitySection from "@/components/CompatibilitySection";
-import { ConfidenceChip } from "@/components/ConfidenceNotice";
 import Illustration from "@/components/Illustration";
 import ResearcherHeader from "@/components/ResearcherHeader";
 import ResearcherProjects from "@/components/ResearcherProjects";
@@ -179,7 +178,6 @@ export default async function ResearcherPage({
                         <span className="px-1.5 py-0.5 rounded bg-canvas border border-line font-semibold text-ink-2">Different college</span>
                       )}
                       {c.department && <span>{c.department}</span>}
-                      {c.identityConfidence !== "high" && <ConfidenceChip confidence={c.identityConfidence} />}
                     </div>
                     <details className="text-tiny text-ink-3 mt-1">
                       <summary className="cursor-pointer hover:text-ink">Shared records</summary>

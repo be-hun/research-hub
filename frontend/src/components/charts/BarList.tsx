@@ -15,15 +15,15 @@ export default function BarList({ rows, caption }: { rows: BarRow[]; caption: st
   const max = Math.max(...rows.map((r) => r.value), 1);
 
   return (
-    <figure>
+    <figure className="min-w-0">
       <figcaption className="sr-only">{caption}</figcaption>
       <ul className="space-y-1">
         {rows.map((r) => {
           const pct = Math.max((r.value / max) * 100, 1.5);
           const body = (
             <>
-              <div className="flex items-baseline justify-between gap-4 mb-1.5">
-                <span className="text-small font-medium text-ink truncate">{r.label}</span>
+              <div className="flex items-baseline justify-between gap-3 mb-1.5 min-w-0">
+                <span className="text-small font-medium text-ink truncate min-w-0" title={r.label}>{r.label}</span>
                 <span className="num text-small font-semibold text-ink shrink-0">{r.valueLabel}</span>
               </div>
               <div className="h-2.5 rounded-r bg-canvas" aria-hidden="true">

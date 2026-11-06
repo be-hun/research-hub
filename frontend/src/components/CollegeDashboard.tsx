@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 import AwardRow from "@/components/AwardRow";
 import YearBars from "@/components/charts/YearBars";
-import { ConfidenceChip } from "@/components/ConfidenceNotice";
 import Illustration from "@/components/Illustration";
 import Section from "@/components/Section";
 import SectionTabs from "@/components/SectionTabs";
@@ -106,7 +105,6 @@ export default function CollegeDashboard({ d }: { d: Dashboard }) {
                     </Link>
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-tiny text-ink-3">
                       {r.department && <span>{r.department}</span>}
-                      {r.identityConfidence !== "high" && <ConfidenceChip confidence={r.identityConfidence} />}
                     </div>
                   </div>
                   <span className="text-small text-ink-3 num shrink-0">{count(r.records, "record")}</span>

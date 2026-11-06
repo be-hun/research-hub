@@ -7,17 +7,6 @@ const LABELS: Record<IdentityConfidence, string> = {
   low: "Name match across sources",
 };
 
-/** Small label for lists: quiet gray text with an icon, so it informs without alarming (design rule: never a
- *  yellow warning banner). Text, not color, carries the meaning. */
-export function ConfidenceChip({ confidence }: { confidence: IdentityConfidence }) {
-  return (
-    <span className="inline-flex items-center gap-1 text-tiny text-ink-3">
-      <Icon name="info" size={14} />
-      {LABELS[confidence]}
-    </span>
-  );
-}
-
 /** The one provenance note on a profile: how sure we are the records are one person, and that nobody confirmed it. */
 export default function ConfidenceNotice({
   confidence,
