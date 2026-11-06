@@ -8,7 +8,9 @@ After=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/research-hub/backend
-# A login shell, so uv is on PATH the same way it is for the deploy steps. backend/.env supplies DATABASE_URL.
-ExecStart=/bin/bash -lc 'uv run --locked python -m ingest.grants_gov'
+# The same settings file as research-hub-api.service (DATABASE_URL and the rest); backend/.env, if present, is
+# read too, but real environment variables win.
+EnvironmentFile=-/etc/research-hub.env
+ExecStart=/root/.local/bin/uv run --no-sync python -m ingest.grants_gov
 TimeoutStartSec=30min
 Nice=10

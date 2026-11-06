@@ -60,6 +60,7 @@ and update dates, so generating it before the import produces stale results:
 
 ```bash
 cd /opt/research-hub/backend
+set -a; . /etc/research-hub.env; set +a   # the server's settings live here, not in backend/.env
 uv run python -m ingest.run --offline --no-backup
 uv run python -m app.summaries --kinds topic,college,researcher --min-records 2 --workers 4
 ```
@@ -93,8 +94,8 @@ journalctl -u research-hub-opportunities.service -n 30    # the last run's count
 
 If Grants.gov returns fewer than half as many calls as are stored, the run exits with an error and keeps the stored
 calls (`journalctl` says so). Run `uv run python -m ingest.grants_gov --force` by hand if the drop is real. The
-services run as the same user as `research-hub-api.service`; if that isn't root, add the same `User=` line to the
-`.service` file in a PR.
+unit reads `/etc/research-hub.env`, the same settings file as `research-hub-api.service`, and runs uv from
+`/root/.local/bin/uv` like that service does; change both in a PR if the server's setup changes.
 
 After a deploy that changes the units: `systemctl daemon-reload`.
 
