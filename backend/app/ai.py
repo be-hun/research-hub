@@ -101,6 +101,31 @@ SUMMARY_DECLINED = {"summary": "", "points": []}
 SUMMARY_EFFORT = os.environ.get("AI_SUMMARY_EFFORT", "low")  # short, extractive summaries: low effort is enough
 
 
+INTRO_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "enough_overlap": {
+            "type": "boolean",
+            "description": "False when the shared records don't give a concrete, honest reason to write.",
+        },
+        "subject": {"type": "string", "description": "At most 10 words. Empty when enough_overlap is false."},
+        "body": {
+            "type": "string",
+            "description": "About 120 words of plain text, no [n] markers. Empty when enough_overlap is false.",
+        },
+        "records": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "The record numbers the body mentions.",
+        },
+    },
+    "required": ["enough_overlap", "subject", "body", "records"],
+}
+
+INTRO_DECLINED = {"enough_overlap": False, "subject": "", "body": "", "records": []}
+INTRO_EFFORT = os.environ.get("AI_INTRO_EFFORT", "low")  # a short draft from a few records: low effort is enough
+
+
 class AIUnavailable(Exception):
     """The model could not be reached or is not configured. The message is safe to show users."""
 
@@ -117,6 +142,12 @@ def grounded_summary(system: str, content: str) -> dict:
     """Return a dict shaped like SUMMARY_SCHEMA (summary "" if the model declines). One user message, no history."""
     return _call(system, [{"role": "user", "content": content}], SUMMARY_SCHEMA, _validate_summary,
                  SUMMARY_DECLINED, SUMMARY_EFFORT)
+
+
+def grounded_intro(system: str, content: str) -> dict:
+    """Return a dict shaped like INTRO_SCHEMA (enough_overlap False if the model declines). One user message."""
+    return _call(system, [{"role": "user", "content": content}], INTRO_SCHEMA, _validate_intro,
+                 INTRO_DECLINED, INTRO_EFFORT)
 
 
 def _call(system: str, messages: list[dict], schema: dict, validate, declined: dict, effort: str) -> dict:
@@ -143,6 +174,14 @@ def _validate_response(value: object) -> dict:
 def _validate_summary(value: object) -> dict:
     if not isinstance(value, dict) or not isinstance(value.get("summary"), str) or not isinstance(value.get("points"), list):
         raise AIUnavailable("The summary came back in an unexpected format. Try again.")
+    return value
+
+
+def _validate_intro(value: object) -> dict:
+    if (not isinstance(value, dict) or not isinstance(value.get("enough_overlap"), bool)
+            or not all(isinstance(value.get(k), str) for k in ("subject", "body"))
+            or not isinstance(value.get("records"), list)):
+        raise AIUnavailable("The draft came back in an unexpected format. Try again.")
     return value
 
 

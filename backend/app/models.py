@@ -588,3 +588,27 @@ class AISummary(BaseModel):
     message: str | None
     generatedAt: str | None  # ISO time the summary was written (it is cached until the data changes)
     model: str | None
+
+
+class IntroDraftRequest(BaseModel):
+    researcherId: str = Field(min_length=1, max_length=200)
+    profile: ProfileInput  # the sender's stated interests, as For you and Ask take them
+    senderName: str | None = Field(default=None, max_length=80)  # signs the email; a placeholder when absent
+
+
+class IntroDraft(BaseModel):
+    """A short intro email from the profile's owner to a researcher, written only from records the two share.
+
+    The model writes `subject` and `body`; everything else is read from the database. Never a source of facts.
+    """
+
+    researcherId: str
+    researcherName: str
+    available: bool  # false when there isn't enough real overlap to write one; `message` says why
+    subject: str  # "" when unavailable
+    body: str  # plain text, about 120 words; "" when unavailable
+    citations: list[SummaryCitation]  # the shared records the email mentions, read from the database
+    sharedTopics: list[TopicRef]  # topics the profile shares with the researcher's records
+    band: MatchBand | None  # their overlap band in the people ranking; None when they aren't in it
+    message: str | None
+    model: str | None

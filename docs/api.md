@@ -39,6 +39,7 @@ when the generated files are stale. This page adds what code can't say: behaviou
 | `GET` | `/api/colleges/{college_id}/projects` | `page`, `kind` (repeatable) | `SearchResponse` |
 | `GET` | `/api/summaries/{kind}/{ref_id}` | — | `AISummary` |
 | `POST` | `/api/assistant` | body: `AssistantRequest` | `AssistantReply` |
+| `POST` | `/api/intro-draft` | body: `IntroDraftRequest` | `IntroDraft` |
 
 <!-- END GENERATED: endpoints -->
 
@@ -258,6 +259,23 @@ Body: `AssistantRequest`, i.e. `{ messages: { role: "user" | "assistant", text: 
 
 The assistant has no rate limit. A public launch should add rate limiting and budget accounting
 (ideally at the reverse proxy or other shared infrastructure) so the API key can't be run up.
+
+## `POST /api/intro-draft`
+
+Body: `IntroDraftRequest`, i.e. `{ researcherId: string, profile: ProfileInput, senderName?: string }`. Returns
+`IntroDraft`: a short intro email (`subject` plus a plain-text `body` of about 120 words) from the profile's owner to
+that researcher, used by the "Draft an intro" button on Ask's person cards and the researcher page (demo account).
+
+- The records are the researcher's best eligible records that match the profile (up to four), taken from the same
+  people ranking as `POST /api/match/researcher/:id`. `sharedTopics` and `band` come from that ranking too.
+- If the researcher isn't in the ranking (no active or recent record shares the profile's topics or keywords), the
+  model isn't called: `available: false` with a `message` saying there isn't enough overlap.
+- The model sees only those numbered records and the profile, which it is told are interests, not the sender's own
+  work. It may also answer that the overlap is too thin (`available: false`). A draft that cites no record it was
+  given is rejected the same way. `[n]` markers are stripped from the body.
+- `citations` lists the records the email mentions (all records considered when `available` is false), with ids and
+  titles read from the database. Each call writes a fresh draft; nothing is cached or stored.
+- 404 for an unknown researcher, 422 for an invalid profile, 503 with `{ detail }` when the AI service is unavailable.
 
 ## Data rules
 

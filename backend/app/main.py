@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import ai, assistant, compatibility, config, dashboards, explore, models, queries, researchers, summaries
+from app import ai, assistant, compatibility, config, dashboards, explore, intro, models, queries, researchers, summaries
 from app.colleges import COLLEGE_NAMES
 from app.db import Connection, Pool, connect, ensure_search_extensions, init_schema
 
@@ -196,6 +196,20 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
             result = ai.grounded_answer(assistant.SYSTEM, prepared.api_messages)
             with app.state.pool.connection() as conn:
                 return assistant.finish(conn, prepared, result, body.profile)
+        except ai.AIUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    @app.post("/api/intro-draft")
+    def intro_draft(body: models.IntroDraftRequest) -> models.IntroDraft:
+        # Like the assistant: read the records, release the connection, then call the model.
+        with app.state.pool.connection() as conn:
+            prepared = intro.prepare(conn, body)
+        if prepared is None:
+            raise HTTPException(404, "Researcher not found")
+        if isinstance(prepared, models.IntroDraft):
+            return prepared  # not enough overlap: no model call
+        try:
+            return intro.finish(prepared, ai.grounded_intro(intro.SYSTEM, prepared.content))
         except ai.AIUnavailable as exc:
             raise HTTPException(503, str(exc)) from exc
 

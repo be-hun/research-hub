@@ -14,7 +14,9 @@ import type {
   ProfileInput,
   Project,
 } from "@/lib/types";
+import AnswerActions from "./AnswerActions";
 import Icon from "./Icon";
+import IntroDraftButton from "./IntroDraftButton";
 import { CollegeTag, KindTag, StatusChip } from "./Tags";
 
 interface Message {
@@ -88,7 +90,15 @@ function RecordCard({ record }: { record: AssistantRecord }) {
 }
 
 /** A person in a people answer, or a member of a suggested team (then `focus` is what they bring to it). */
-function PersonCard({ person, team = false }: { person: AssistantPerson; team?: boolean }) {
+function PersonCard({
+  person,
+  profile,
+  team = false,
+}: {
+  person: AssistantPerson;
+  profile: ProfileInput | null;
+  team?: boolean;
+}) {
   const t = person.totals;
   const totals = [
     t.grants && count(t.grants, "grant"),
@@ -146,11 +156,28 @@ function PersonCard({ person, team = false }: { person: AssistantPerson; team?: 
           </li>
         ))}
       </ul>
+      {profile && person.researcherId && (
+        <div className="mt-3">
+          <IntroDraftButton researcherId={person.researcherId} name={person.name} profile={profile} />
+        </div>
+      )}
     </li>
   );
 }
 
-function Answer({ reply, onAsk }: { reply: AssistantReply; onAsk: (q: string) => void }) {
+function Answer({
+  reply,
+  question,
+  signedIn,
+  onAsk,
+  profile,
+}: {
+  reply: AssistantReply;
+  question: string;
+  signedIn: boolean;
+  onAsk: (q: string) => void;
+  profile: ProfileInput | null;
+}) {
   const isTeam = reply.mode === "team";
   const isPeople = reply.mode === "people";
   const n = isPeople ? reply.people.length : reply.records.length;
@@ -174,7 +201,7 @@ function Answer({ reply, onAsk }: { reply: AssistantReply; onAsk: (q: string) =>
           </p>
           <ul className="space-y-2">
             {reply.people.map((p) => (
-              <PersonCard key={p.name} person={p} team />
+              <PersonCard key={p.name} person={p} profile={profile} team />
             ))}
           </ul>
         </section>
@@ -187,11 +214,12 @@ function Answer({ reply, onAsk }: { reply: AssistantReply; onAsk: (q: string) =>
           </h3>
           <ul className="space-y-2">
             {isPeople
-              ? reply.people.map((p) => <PersonCard key={p.name} person={p} />)
+              ? reply.people.map((p) => <PersonCard key={p.name} person={p} profile={profile} />)
               : reply.records.map((r) => <RecordCard key={r.n} record={r} />)}
           </ul>
         </section>
       )}
+      {reply.mode !== "none" && <AnswerActions reply={reply} question={question} signedIn={signedIn} />}
       {reply.followUps.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {reply.followUps.map((q) => (
@@ -261,16 +289,20 @@ function history(messages: Message[]): ChatMessage[] {
 export default function AssistantChat({
   profile = null,
   suggestions = SUGGESTIONS,
+  initialQuestion = "",
 }: {
   /** Demo account: the signed-in profile's interests, sent so answers can lean toward them. */
   profile?: ProfileInput | null;
   suggestions?: string[];
+  /** A shared /ask?q=... link: asked as soon as the page opens. */
+  initialQuestion?: string;
 } = {}) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [slow, setSlow] = useState(false);
   const waitingRef = useRef<HTMLDivElement>(null);
+  const askedInitial = useRef(false);
 
   useEffect(() => {
     if (!busy) return;
@@ -306,6 +338,14 @@ export default function AssistantChat({
     setMessages([...next, reply]);
     setBusy(false);
   }
+
+  useEffect(() => {
+    if (askedInitial.current || !initialQuestion.trim()) return;
+    askedInitial.current = true;
+    send(initialQuestion);
+    // Only once, on the first render: a shared link asks its question a single time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** Ask the failed question again, replacing the failed exchange. */
   function retry() {
@@ -343,7 +383,13 @@ export default function AssistantChat({
               <Avatar />
               <div className="flex-1 min-w-0">
                 {m.reply ? (
-                  <Answer reply={m.reply} onAsk={send} />
+                  <Answer
+                    reply={m.reply}
+                    question={messages[i - 1]?.text ?? ""}
+                    signedIn={!!profile}
+                    onAsk={send}
+                    profile={profile}
+                  />
                 ) : (
                   <div className="bg-canvas border border-line text-ink-2 rounded-xl p-4">
                     <p>{m.text}</p>

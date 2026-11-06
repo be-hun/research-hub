@@ -555,3 +555,23 @@ export interface AISummary {
   generatedAt: string | null; // ISO time the summary was written (it is cached until the data changes)
   model: string | null;
 }
+
+export interface IntroDraftRequest {
+  researcherId: string;
+  profile: ProfileInput; // the sender's stated interests, as For you and Ask take them
+  senderName?: string | null; // signs the email; a placeholder when absent
+}
+
+/** A short intro email from the profile's owner to a researcher, written only from records the two share. The model writes `subject` and `body`; everything else is read from the database. Never a source of facts. */
+export interface IntroDraft {
+  researcherId: string;
+  researcherName: string;
+  available: boolean; // false when there isn't enough real overlap to write one; `message` says why
+  subject: string; // "" when unavailable
+  body: string; // plain text, about 120 words; "" when unavailable
+  citations: SummaryCitation[]; // the shared records the email mentions, read from the database
+  sharedTopics: TopicRef[]; // topics the profile shares with the researcher's records
+  band: MatchBand | null; // their overlap band in the people ranking; None when they aren't in it
+  message: string | null;
+  model: string | null;
+}
