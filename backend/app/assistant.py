@@ -54,6 +54,11 @@ INTENT_WORDS = {
     "publications": ("publication", None), "published": ("publication", None), "article": ("publication", None),
     "articles": ("publication", None),
 }
+# Words that point back at an earlier answer ("Which of them have recruiting trials?"). A follow-up that uses one,
+# or has no topic of its own, searches with the topic of the last question that had one.
+BACK_REFERENCE = {"them", "they", "their", "theirs", "those", "these", "it", "its", "he", "she", "his", "her", "ones"}
+# Words around a pointing-back word that aren't a topic either ("which of them have...").
+FOLLOW_UP_FILLER = BACK_REFERENCE | {"have", "has", "had", "do", "does", "of", "are", "is", "any"}
 
 
 @dataclass
@@ -157,7 +162,23 @@ def _question_profile(conn: Connection, profile: models.ProfileInput, question: 
     return models.ProfileInput(college=profile.college, topics=topics, terms=[t[:40] for t in terms if 1 <= len(t) <= 40])
 
 
-def _retrieve_question(conn: Connection, question: str, profile: models.ProfileInput | None) -> tuple[
+def _topic_words(text: str) -> list[str]:
+    """The words of a question that name its topic: no filler, intent or pointing-back words."""
+    return [w for w in re.findall(r"[a-z0-9]+", _plain(text.lower()))
+            if w not in FILLER_WORDS and w not in INTENT_WORDS and w not in FOLLOW_UP_FILLER
+            and w not in queries.STOPWORDS]
+
+
+def _follow_up_topic(question: str, earlier: list[str]) -> list[str]:
+    """For a follow-up that points back ("them", "those") or names no topic: the last earlier question's topic."""
+    pointing_back = not BACK_REFERENCE.isdisjoint(re.findall(r"[a-z0-9]+", question.lower()))
+    if _topic_words(question) and not pointing_back:
+        return []
+    return next((topic for text in reversed(earlier) if (topic := _topic_words(text))), [])
+
+
+def _retrieve_question(conn: Connection, question: str, profile: models.ProfileInput | None,
+                       earlier: list[str] | None = None) -> tuple[
     list[Row], str, list[models.CollaboratorMatch], list[models.CollaboratorMatch]
 ]:
     lower = question.lower()
@@ -171,7 +192,8 @@ def _retrieve_question(conn: Connection, question: str, profile: models.ProfileI
     college = next((value for label, value in COLLEGE_WORDS.items() if re.search(rf"\b{re.escape(label)}\b", lower)), None)
     excluded = next((value for label, value in COLLEGE_WORDS.items()
                      if re.search(rf"\b(?:outside|beyond|other than)\s+{re.escape(label)}\b", lower)), None)
-    tokens = [w for w in re.findall(r"[a-z0-9]+", _plain(lower)) if w not in FILLER_WORDS and w not in INTENT_WORDS]
+    follow_up = _follow_up_topic(question, earlier or [])
+    tokens = list(dict.fromkeys(follow_up + _topic_words(question)))
     query = " ".join(tokens)
     search = queries.search(conn, query, kinds=kinds, status=status)
     ids = [p.id for p in search.results]
@@ -195,7 +217,7 @@ def _retrieve_question(conn: Connection, question: str, profile: models.ProfileI
         # The profile only steers who is suggested when the question is about the user ("who should I talk to");
         # otherwise "Who studies Alzheimer's?" would return people matching the profile instead of the question.
         base = profile if personal else models.ProfileInput()
-        question_profile = _question_profile(conn, base, question)
+        question_profile = _question_profile(conn, base, " ".join(follow_up + [question]))
         collaborators = compatibility.for_you(conn, question_profile).collaborators
         cited = [pid for person in collaborators for pid in person.citations[:2]]
         if cited:
@@ -412,7 +434,8 @@ def prepare(conn: Connection, messages: list[models.ChatMessage],
         collaborators = []
         profile_collaborators = compatibility.for_you(conn, profile).collaborators if profile else []
     else:
-        records, searched_for, collaborators, profile_collaborators = _retrieve_question(conn, question, profile)
+        earlier = [m.text for m in messages[:-1] if m.role == "user"]
+        records, searched_for, collaborators, profile_collaborators = _retrieve_question(conn, question, profile, earlier)
     if not records:
         return Prepared([], [], searched_for, collaborators, profile_collaborators, team)
     context = "\n\n".join(format_record(n, r) for n, r in enumerate(records, start=1))
