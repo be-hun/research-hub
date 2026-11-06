@@ -264,8 +264,7 @@ def topic_detail(conn: Connection, topic_id: str) -> models.TopicDetail | None:
             GROUP BY r.id ORDER BY records DESC, r.name LIMIT 12
         """, ids):
             people.append(models.TopicPerson(researcherId=r["id"], name=r["name"], college=r["college"],
-                                             department=r["department"] or "", records=r["records"],
-                                             awards=r["records"]))
+                                             department=r["department"] or "", records=r["records"]))
 
     # Related topics: the ones that share the most people with this one.
     shared: Counter = Counter()

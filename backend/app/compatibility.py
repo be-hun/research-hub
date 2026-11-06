@@ -452,7 +452,7 @@ def _rank(conn: Connection, profile: models.ProfileInput) -> _Ranking:
     p = _Profile(profile, data)
     scored = []
     for rid, project_ids in team.items():
-        if rid in researchers and (person := _person(data, p, researchers[rid]["college"], project_ids)).points:
+        if rid in researchers and (person := _person(data, p, researchers[rid]["college"], project_ids)).points >= MIN_MATCH_SCORE:
             scored.append((person, researchers[rid]))
     # Best record first; ties go to the person with more matching records, then the more recent work. The id
     # only makes the order total: a name never decides who is shown.

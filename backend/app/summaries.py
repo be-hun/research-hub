@@ -193,6 +193,81 @@ def summarize(conn: Connection, kind: str, ref_id: str) -> models.AISummary | No
         return reply
 
 
+def summarize_pooled(pool, kind: str, ref_id: str) -> models.AISummary | None:
+    """Summarize without occupying a request-pool connection during the model call."""
+    def snapshot():
+        with pool.connection() as conn:
+            subject = _subject(conn, kind, ref_id)
+            if subject is None:
+                return None
+            about, ids = subject
+            rows = record_rows(conn, ids)
+            citations = [models.SummaryCitation(n=n, id=r["id"], title=r["title"], kind=r["kind"])
+                         for n, r in enumerate(rows, start=1)]
+            if not rows:
+                return about, ids, rows, citations, None, _unavailable(
+                    kind, ref_id, citations, "There are no stored records to summarize yet.")
+            if not ENABLED:
+                return about, ids, rows, citations, None, _unavailable(
+                    kind, ref_id, citations, "AI summaries are turned off.")
+            version = _version(conn, ids)
+            cached = conn.execute("SELECT version, payload FROM ai_summaries WHERE kind = ? AND ref_id = ?",
+                                  (kind, ref_id)).fetchone()
+            if cached and cached["version"] == version:
+                return about, ids, rows, citations, version, models.AISummary.model_validate(cached["payload"])
+            if CACHED_ONLY:
+                return about, ids, rows, citations, version, _unavailable(
+                    kind, ref_id, citations, "Summary is not ready yet.")
+            return about, ids, rows, citations, version, None
+
+    state = snapshot()
+    if state is None:
+        return None
+    about, ids, rows, citations, version, reply = state
+    if reply is not None:
+        return reply
+    with _locks_guard:
+        lock = _locks.setdefault((kind, ref_id), threading.Lock())
+    with lock:
+        state = snapshot()
+        if state is None:
+            return None
+        about, ids, rows, citations, version, reply = state
+        if reply is not None:
+            return reply
+        context = "\n\n".join(format_record(n, r) for n, r in enumerate(rows, start=1))
+        try:
+            result = ai.grounded_summary(SYSTEM, f"Summarize {about}.\n\n<records>\n{context}\n</records>")
+        except ai.AIUnavailable as exc:
+            return _unavailable(kind, ref_id, citations, str(exc))
+        summary = _clean(result.get("summary", ""), len(rows))
+        points = []
+        for point in result.get("points", [])[:MAX_POINTS]:
+            if not isinstance(point, dict) or not isinstance(point.get("text"), str):
+                continue
+            written = [int(n) for n in re.findall(r"\[(\d+)\]", point["text"])]
+            cited = _valid([*point.get("records", []), *written], len(rows))
+            text = re.sub(r"\s*\[\d+\]", "", point["text"]).strip()
+            if text and cited:
+                points.append(models.SummaryPoint(text=text, citations=cited))
+        if not summary:
+            reply = _unavailable(kind, ref_id, citations, "The model couldn't write a summary grounded in these records.")
+        else:
+            reply = models.AISummary(
+                kind=kind, id=ref_id, available=True, summary=summary, points=points, citations=citations,
+                recordCount=len(rows), message=None, generatedAt=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                model=ai.MODEL or None,
+            )
+        with pool.connection() as conn:
+            conn.execute(
+                """INSERT INTO ai_summaries (kind, ref_id, version, payload, created_at) VALUES (?, ?, ?, ?::jsonb, ?)
+                   ON CONFLICT (kind, ref_id) DO UPDATE SET version = EXCLUDED.version, payload = EXCLUDED.payload,
+                                                            created_at = EXCLUDED.created_at""",
+                (kind, ref_id, version, json.dumps(reply.model_dump()), datetime.now(timezone.utc).isoformat()),
+            )
+        return reply
+
+
 def _subjects(conn: Connection, kinds: list[str], minimum: int) -> list[tuple[str, str]]:
     out = []
     for kind in kinds:

@@ -462,7 +462,6 @@ class TopicPerson(BaseModel):
     college: CollegeId | None
     department: str
     records: int  # records of every kind on this topic
-    awards: int  # deprecated: the same number as records; kept until the topic page reads records
 
 
 class TopicDetail(BaseModel):

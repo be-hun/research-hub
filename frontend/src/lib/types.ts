@@ -432,7 +432,6 @@ export interface TopicPerson {
   college: CollegeId | null;
   department: string;
   records: number; // records of every kind on this topic
-  awards: number; // deprecated: the same number as records; kept until the topic page reads records
 }
 
 export interface TopicDetail {
