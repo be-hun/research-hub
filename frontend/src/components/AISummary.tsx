@@ -9,14 +9,22 @@ import Icon from "./Icon";
 /** "[2]" in the text becomes a numbered link to that record; everything else is plain text. */
 function Cited({ text, citations }: { text: string; citations: SummaryCitation[] }) {
   const byN = new Map(citations.map((c) => [c.n, c]));
+  // "[7][9]" splits into "", "[7]", "", "[9]": a citation right after another gets a comma, so it reads "7,9".
+  let previousWasCitation = false;
   return (
     <>
       {text.split(/(\[\d+\])/).map((part, i) => {
         const n = /^\[(\d+)\]$/.exec(part)?.[1];
         const c = n ? byN.get(Number(n)) : undefined;
-        if (!c) return <Fragment key={i}>{part}</Fragment>;
+        if (!c) {
+          if (part) previousWasCitation = false;
+          return <Fragment key={i}>{part}</Fragment>;
+        }
+        const comma = previousWasCitation;
+        previousWasCitation = true;
         return (
-          <sup key={i} className="ml-0.5">
+          <sup key={i} className={comma ? "" : "ml-0.5"}>
+            {comma && <span className="text-ink-3">,</span>}
             <Link href={`/projects/${c.id}`} title={c.title} className="num text-cherry font-semibold hover:underline">
               {c.n}
             </Link>
