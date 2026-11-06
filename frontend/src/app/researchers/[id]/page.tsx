@@ -18,7 +18,7 @@ import { getResearcher, getResearcherCompatibility, matchResearcher } from "@/li
 import { COLLEGES, KIND_LABELS } from "@/lib/colleges";
 import { demoProfileInput } from "@/lib/demo";
 import { count, shortDate } from "@/lib/format";
-import type { Kind, ResearcherCompatibility, ResearcherMatch } from "@/lib/types";
+import type { Kind, ProfileInput, ResearcherCompatibility, ResearcherMatch } from "@/lib/types";
 
 const EVIDENCE: Record<string, string> = {
   "source-person-id": "Source person ID",
@@ -33,9 +33,19 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
 }
 
 // The match sections stream in after the profile: each awaits a request the page started, inside its own <Suspense>.
-async function YouSection({ name, match }: { name: string; match: Promise<ResearcherMatch | null> }) {
+async function YouSection({
+  id,
+  name,
+  match,
+  profile,
+}: {
+  id: string;
+  name: string;
+  match: Promise<ResearcherMatch | null>;
+  profile: ProfileInput;
+}) {
   const m = await match;
-  return m ? <YouAndResearcher name={name} match={m} /> : null;
+  return m ? <YouAndResearcher researcherId={id} name={name} match={m} profile={profile} /> : null;
 }
 
 async function RelatedSection({ compatibility }: { compatibility: Promise<ResearcherCompatibility | null> }) {
@@ -88,9 +98,9 @@ export default async function ResearcherPage({
 
       <AISummary kind="researcher" id={r.id} about={`${r.name}’s records`} />
 
-      {youMatch && (
+      {demo && youMatch && (
         <Suspense fallback={<MatchSkeleton className="h-36 bg-cherry-tint/60 border-cherry/20" />}>
-          <YouSection name={r.name} match={youMatch} />
+          <YouSection id={r.id} name={r.name} match={youMatch} profile={demo} />
         </Suspense>
       )}
 

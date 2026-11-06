@@ -15,6 +15,7 @@ import type {
   Project,
 } from "@/lib/types";
 import Icon from "./Icon";
+import IntroDraftButton from "./IntroDraftButton";
 import { CollegeTag, KindTag, StatusChip } from "./Tags";
 
 interface Message {
@@ -86,7 +87,7 @@ function RecordCard({ record }: { record: AssistantRecord }) {
   );
 }
 
-function PersonCard({ person }: { person: AssistantPerson }) {
+function PersonCard({ person, profile }: { person: AssistantPerson; profile: ProfileInput | null }) {
   const t = person.totals;
   const totals = [
     t.grants && count(t.grants, "grant"),
@@ -135,11 +136,24 @@ function PersonCard({ person }: { person: AssistantPerson }) {
           </li>
         ))}
       </ul>
+      {profile && person.researcherId && (
+        <div className="mt-3">
+          <IntroDraftButton researcherId={person.researcherId} name={person.name} profile={profile} />
+        </div>
+      )}
     </li>
   );
 }
 
-function Answer({ reply, onAsk }: { reply: AssistantReply; onAsk: (q: string) => void }) {
+function Answer({
+  reply,
+  onAsk,
+  profile,
+}: {
+  reply: AssistantReply;
+  onAsk: (q: string) => void;
+  profile: ProfileInput | null;
+}) {
   const isPeople = reply.mode === "people";
   const n = isPeople ? reply.people.length : reply.records.length;
   return (
@@ -154,7 +168,7 @@ function Answer({ reply, onAsk }: { reply: AssistantReply; onAsk: (q: string) =>
           </h3>
           <ul className="space-y-2">
             {isPeople
-              ? reply.people.map((p) => <PersonCard key={p.name} person={p} />)
+              ? reply.people.map((p) => <PersonCard key={p.name} person={p} profile={profile} />)
               : reply.records.map((r) => <RecordCard key={r.n} record={r} />)}
           </ul>
         </section>
@@ -308,7 +322,7 @@ export default function AssistantChat({
               <Avatar />
               <div className="flex-1 min-w-0">
                 {m.reply ? (
-                  <Answer reply={m.reply} onAsk={send} />
+                  <Answer reply={m.reply} onAsk={send} profile={profile} />
                 ) : (
                   <div className="bg-canvas border border-line text-ink-2 rounded-xl p-4">
                     <p>{m.text}</p>

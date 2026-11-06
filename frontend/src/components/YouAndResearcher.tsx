@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { plainReasons, reasonChips } from "@/lib/matchReasons";
-import type { ResearcherMatch } from "@/lib/types";
+import type { ProfileInput, ResearcherMatch } from "@/lib/types";
 import AwardRow from "./AwardRow";
+import IntroDraftButton from "./IntroDraftButton";
 import MatchBadge from "./profile/MatchBadge";
 
 function EditLink() {
@@ -16,7 +17,17 @@ function EditLink() {
  * Demo account only: what the signed-in profile shares with this researcher, from stored records. The band and rank
  * come from the same people ranking as the account page, so they read the same in both places.
  */
-export default function YouAndResearcher({ name, match }: { name: string; match: ResearcherMatch }) {
+export default function YouAndResearcher({
+  researcherId,
+  name,
+  match,
+  profile,
+}: {
+  researcherId: string;
+  name: string;
+  match: ResearcherMatch;
+  profile: ProfileInput;
+}) {
   const matched = match.eligible && match.score > 0;
   return (
     <section aria-labelledby="you-and" className="bg-cherry-tint/60 border border-cherry/20 rounded-xl p-5 space-y-3">
@@ -58,6 +69,7 @@ export default function YouAndResearcher({ name, match }: { name: string; match:
               ))}
             </ul>
           )}
+          <IntroDraftButton researcherId={researcherId} name={name} profile={profile} variant="outline" />
         </>
       ) : !match.eligible ? (
         <p className="text-small text-ink-2">
