@@ -36,6 +36,7 @@ when the generated files are stale. This page adds what code can't say: behaviou
 | `GET` | `/api/colleges` | — | `CollegeSummary[]` |
 | `GET` | `/api/colleges/{college_id}` | — | `CollegeDashboard` |
 | `GET` | `/api/colleges/{college_id}/projects` | `page`, `kind` (repeatable) | `SearchResponse` |
+| `GET` | `/api/summaries/{kind}/{ref_id}` | — | `AISummary` |
 | `POST` | `/api/assistant` | body: `AssistantRequest` | `AssistantReply` |
 
 <!-- END GENERATED: endpoints -->
@@ -177,6 +178,16 @@ college, which appear on no college page). Every figure is a SQL aggregate.
 
 Returns `{"ok": true}` after the API can query its database. Reverse proxies should use this endpoint
 for readiness checks.
+
+## `GET /api/summaries/:kind/:id`
+
+`kind` is `project`, `researcher`, `topic` or `college`. Returns `AISummary`: two or three sentences and up to three
+key points written by the configured model (`AI_PROVIDER` / `AI_MODEL`) from the stored records behind that page.
+The backend picks the records with SQL (the record itself; a researcher's or a topic's or college's twelve most
+recent, active first), numbers them, and keeps only `[n]` citations that point at them; a reply without a valid
+citation comes back as `available: false`. `citations` lists every record sent, numbered as in the text. Summaries
+are cached in the `ai_summaries` table until the summarized records, the prompt or the model change. A model error
+returns `available: false` with a `message` (not cached). 404 for an unknown id, 422 for an unknown kind.
 
 ## `POST /api/assistant`
 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import AISummary from "@/components/AISummary";
 import CollegeDashboard from "@/components/CollegeDashboard";
 import CollegeHeader from "@/components/CollegeHeader";
 import { getCollege } from "@/lib/api";
@@ -21,6 +22,7 @@ export default async function CollegePage({ params }: { params: { id: string } }
         <span className="text-ink-2">{d.college.name}</span>
       </nav>
       <CollegeHeader d={d} />
+      <AISummary kind="college" id={d.college.id} about={`research at ${d.college.name}`} />
       <CollegeDashboard d={d} />
     </main>
   );

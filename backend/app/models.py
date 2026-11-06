@@ -519,3 +519,35 @@ class PeopleResponse(BaseModel):
     sort: Literal["records", "name"]
     results: list[PersonSummary]
     colleges: list[FacetValue]  # people per college for the current query, ignoring the college filter
+
+
+# ---------- AI summaries ----------
+
+SummaryKind = Literal["project", "researcher", "topic", "college"]
+
+
+class SummaryCitation(BaseModel):
+    n: int  # the [n] used in the summary text
+    id: str  # project id
+    title: str
+    kind: Kind
+
+
+class SummaryPoint(BaseModel):
+    text: str
+    citations: list[int]  # [n] numbers, each one in `citations`
+
+
+class AISummary(BaseModel):
+    """A model-written summary of stored records, for display next to them. Never a source of facts on its own."""
+
+    kind: SummaryKind
+    id: str
+    available: bool  # false when no summary could be written; `message` says why
+    summary: str  # plain text with [n] citations; "" when unavailable
+    points: list[SummaryPoint]
+    citations: list[SummaryCitation]  # every record the model was given, numbered as in the text
+    recordCount: int
+    message: str | None
+    generatedAt: str | None  # ISO time the summary was written (it is cached until the data changes)
+    model: str | None
