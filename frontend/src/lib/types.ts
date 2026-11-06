@@ -20,6 +20,7 @@ export interface Source {
 export interface Match {
   reason: string;
   evidence: string[];
+  snippet?: string | null; // search only: ~30 words of the abstract around the matched words, each one in ⟦ ⟧
 }
 
 export interface Project {
@@ -254,7 +255,7 @@ export interface ChatMessage {
 }
 
 export interface AssistantRequest {
-  messages: ChatMessage[];
+  messages: ChatMessage[]; // only the last 8 are used, from a user turn
   profile?: ProfileInput | null;
 }
 
@@ -279,12 +280,14 @@ export interface PersonCounts {
 }
 
 export interface AssistantPerson {
+  researcherId?: string | null; // their profile, /researchers/{researcherId}; null when no record links one
   name: string;
   department: string;
   college: CollegeId | null;
   focus: string; // a few words from the model
   records: PersonRecord[]; // retrieved records they appear on
   totals: PersonCounts; // every Temple record they appear on
+  inYourMatches: boolean; // one of the profile's For you collaborators; false when no profile was sent
 }
 
 export interface AssistantReply {
@@ -293,6 +296,7 @@ export interface AssistantReply {
   records: AssistantRecord[];
   people: AssistantPerson[];
   followUps: string[];
+  searchedFor: string; // one plain line saying what was retrieved, e.g. "Recruiting clinical trials · heart failure"
 }
 
 export interface FacetValue {
@@ -310,9 +314,13 @@ export interface Facets {
   topics: FacetValue[];
 }
 
+/** phrase: the top results contain the exact phrase; all: every result contains every word; any: no record had all the words, so results have any of them; browse: no query. */
+export type MatchMode = "phrase" | "all" | "any" | "browse";
+
 export interface SearchResponse {
   query: string;
   interpretedAs: string;
+  matchMode: MatchMode;
   total: number;
   page: number;
   pageSize: number;
