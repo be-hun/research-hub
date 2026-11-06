@@ -7,6 +7,9 @@
 Sources: NIH RePORTER and NSF Award Search (grants), USAspending.gov (other federal grants),
 ClinicalTrials.gov (trials sponsored by or run at Temple) and OpenAlex (funded publications).
 Award records are funding history, not proof that a study is active or recruiting.
+
+Open funding calls come from Grants.gov after the awards are loaded. A failed Grants.gov fetch keeps the previous
+calls and doesn't fail the award import; `uv run python -m ingest.grants_gov` refreshes calls on their own.
 """
 
 import argparse
@@ -16,7 +19,7 @@ from datetime import datetime, timezone
 from app import config
 from app.backup import create_backup
 from app.db import Connection, connect, init_schema
-from ingest import clinical_trials, nih_reporter, nsf_awards, openalex, usaspending
+from ingest import clinical_trials, grants_gov, nih_reporter, nsf_awards, openalex, usaspending
 from ingest.load import load, merge
 
 RAW_DIR = config.BACKEND_DIR / "data" / "raw"
@@ -52,6 +55,8 @@ def report(conn: Connection, data: dict) -> str:
     by_kind = conn.execute("SELECT kind, COUNT(*), SUM(is_active) FROM projects GROUP BY kind ORDER BY kind").fetchall()
     by_type = conn.execute("""SELECT category, COUNT(DISTINCT project_id) FROM project_funders
                               GROUP BY category ORDER BY 2 DESC""").fetchall()
+    programs = conn.execute("""SELECT p.source, COUNT(*), COUNT(DISTINCT pp.project_id) FROM project_programs pp
+                                JOIN projects p ON p.id = pp.project_id GROUP BY 1 ORDER BY 1""").fetchall()
     confidence = dict(conn.execute("SELECT identity_confidence, COUNT(*) FROM researchers GROUP BY 1").fetchall())
     merged = count("SELECT COUNT(*) FROM researcher_aliases WHERE evidence = 'same-name-across-sources'")
     return "\n".join([
@@ -60,6 +65,9 @@ def report(conn: Connection, data: dict) -> str:
         "  funding type: " + ", ".join(f"{c} {n}" for c, n in by_type),
         f"  with topic:   {count('SELECT COUNT(DISTINCT project_id) FROM project_topics')}",
         f"award years:    {count('SELECT COUNT(*) FROM award_years')}",
+        f"award ALNs:     {count('SELECT COUNT(*) FROM project_programs')} rows, "
+        f"{count('SELECT COUNT(DISTINCT aln) FROM project_programs')} distinct ("
+        + ", ".join(f"{s} {n} on {a} records" for s, n, a in programs) + ")",
         f"researchers:    {count('SELECT COUNT(*) FROM researchers')} ({shared} found in more than one source)",
         "identity review:",
         f"  high:         {confidence.get('high', 0)} (one source person ID)",
@@ -69,7 +77,27 @@ def report(conn: Connection, data: dict) -> str:
         f"no abstract:    {count('SELECT COUNT(*) FROM projects WHERE length(abstract) = 0')}",
         f"no college:     {len(data['unmapped_project_ids'])}",
         "by college:     " + ", ".join(f"{c} {n}" for c, n in by_college),
+        grants_gov.summary(conn),
     ])
+
+
+def import_calls(conn: Connection, offline: bool) -> None:
+    """Funding calls from Grants.gov. Any failure is printed and the previous calls stay; awards are already in."""
+    try:
+        if offline:
+            raw = grants_gov.read_cache()
+            if raw is None:
+                print(f"funding calls: skipped, {grants_gov.CACHE.name} isn't cached yet "
+                      "(run `uv run python -m ingest.grants_gov` once)")
+                return
+        else:
+            raw = grants_gov.fetch()
+            grants_gov.write_cache(raw)
+        data = grants_gov.refresh(conn, raw)
+        print(f"read {len(raw['opportunities'])} Grants.gov calls (fetched {raw['fetched_at']}); "
+              f"{data['skipped_ineligible']} left out because their applicant types rule out universities")
+    except Exception as exc:
+        print(f"funding calls: not updated, Grants.gov import failed ({exc!r}); the previous calls are kept")
 
 
 def main() -> None:
@@ -122,6 +150,7 @@ def main() -> None:
     where = "cache" if args.offline else "the APIs"
     print(f"read {len(nih)} NIH, {len(nsf)} NSF, {len(usa)} USAspending, {len(trials)} trial and "
           f"{len(pubs['works'])} publication records from {where}")
+    import_calls(conn, args.offline)
     print(report(conn, data))
 
 

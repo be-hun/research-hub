@@ -1,0 +1,14 @@
+# Refreshes the Grants.gov funding calls (only the opportunity tables; awards are untouched).
+# Installed and enabled by the steps in docs/deploy.md; triggered daily by research-hub-opportunities.timer.
+[Unit]
+Description=Research Hub: refresh Grants.gov funding calls
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/research-hub/backend
+# A login shell, so uv is on PATH the same way it is for the deploy steps. backend/.env supplies DATABASE_URL.
+ExecStart=/bin/bash -lc 'uv run --locked python -m ingest.grants_gov'
+TimeoutStartSec=30min
+Nice=10
