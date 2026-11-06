@@ -122,7 +122,9 @@ The People directory. Returns `PeopleResponse`: researchers matching `q` (up to 
 
 Returns active compatibility matches for a researcher. Matches include only active grants and active clinical
 trials, exclude records already on the profile, and are scored deterministically from shared stored topics,
-subject terms, and college links. The score is a discovery aid, not a recommendation; no model call is made.
+subject terms, and college links. Funder-defined topics and rarer subject-term overlap are weighted more heavily;
+a college link cannot produce a match without domain evidence. The score is a discovery aid, not a recommendation;
+no model call is made.
 Each match includes the complete source-backed `Project` and the reasons used for its score.
 
 ## `GET /api/demo-profile`
@@ -136,6 +138,9 @@ presented as a real Temple researcher.
 `ProfileInput` contains an optional college, up to 8 known topic ids and up to 12 terms (each 1–40 characters).
 `/api/for-you` returns up to six recruiting trials, active grants and deterministic collaborator matches. Scores,
 reasons and citations come from stored project topics, colleges, terms and team records; no model is called.
+These endpoints and `/api/demo-profile` use the same scoring as researcher compatibility: funder-defined topics
+and rarer shared terms weigh more, a record needs a shared topic or two shared terms, and a college link alone
+never produces a match.
 
 `POST /api/match/researcher/:id` returns up to six of that researcher's records that share profile topics or
 terms, or 404 for an unknown researcher. `POST /api/match/projects` accepts up to 50 project ids and returns
