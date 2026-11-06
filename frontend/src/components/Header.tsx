@@ -10,7 +10,7 @@ function Logo() {
   return (
     <Link href="/" className="flex items-center gap-2.5 shrink-0" aria-label="ResearchConnect home">
       <span className="w-8 h-8 rounded-md bg-cherry text-white flex items-center justify-center font-serif font-semibold text-lg">
-        T
+        TU
       </span>
       <span className="font-serif text-h3 text-ink">ResearchConnect</span>
     </Link>
