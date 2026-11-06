@@ -107,7 +107,7 @@ export default async function TopicPage({ params }: { params: { id: string } }) 
                     {p.department && <span>{p.department}</span>}
                   </div>
                 </div>
-                <span className="text-small text-ink-3 num shrink-0">{count(p.awards, "record")}</span>
+                <span className="text-small text-ink-3 num shrink-0">{count(p.records, "record")}</span>
               </li>
             ))}
           </ul>

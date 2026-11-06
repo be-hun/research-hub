@@ -52,6 +52,20 @@ systemctl is-active research-hub-api research-hub-web  # active, active
 
 Then open the Home page, a project page, and `/profile` (the synthetic demo profile).
 
+## Import and AI summaries
+
+After deploying a code change, import the data before generating summaries. The summary cache is keyed by record IDs
+and update dates, so generating it before the import produces stale results:
+
+```bash
+cd /opt/research-hub/backend
+uv run python -m ingest.run --offline --no-backup
+uv run python -m app.summaries --kinds topic,college,researcher --min-records 2 --workers 4
+```
+
+Set `AI_SUMMARIES=cached` in the service environment after the CLI completes. Requests then use current cached
+summaries and return unavailable rather than calling the model for anything still missing.
+
 ## Roll back
 
 Check out the previous commit on `main`, repeat the deploy steps, and restore the backup taken before the deploy if

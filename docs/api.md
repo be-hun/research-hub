@@ -31,6 +31,7 @@ when the generated files are stale. This page adds what code can't say: behaviou
 | `GET` | `/api/researchers/{researcher_id}/compatibility` | — | `ResearcherCompatibility` |
 | `GET` | `/api/demo-profile` | — | `DemoResearcherProfile` |
 | `POST` | `/api/for-you` | body: `ProfileInput` | `ForYou` |
+| `POST` | `/api/for-you/people` | `page`, body: `ProfileInput` | `PeopleMatches` |
 | `POST` | `/api/match/researcher/{researcher_id}` | body: `ProfileInput` | `ResearcherMatch` |
 | `POST` | `/api/match/projects` | body: `ProjectMatchRequest` | `ProjectMatches` |
 | `GET` | `/api/colleges` | — | `CollegeSummary[]` |
@@ -171,15 +172,32 @@ These endpoints, `/api/demo-profile` and the assistant's profile-based retrieval
   learning, …) and words in more than 8% of records don't count on their own.
 - A record needs a shared topic, a shared multi-word phrase or two shared interests; a college link alone never
   matches. Same college +8; for people, a different college +5. Scores under 12 are not returned.
-- A person's score is their best-matching record's score, the same in `collaborators` and in
-  `/api/match/researcher/:id`, and their college reason is their own college compared with the profile's.
+- `band` puts a score in words: `Strong overlap` (40 or more), `Good overlap` (24 or more), `Some overlap` (12 or
+  more). The number is a capped sum of evidence, not a percentage, so show the band rather than "N/100". The cutoffs
+  are `STRONG_OVERLAP` and `GOOD_OVERLAP` in `compatibility.py`, with the score spread they came from.
+
+**One people ranking.** `rank_people` ranks everyone once per profile and data version, and every surface reads it:
+`ForYou.collaborators` is its first six, `ForYou.collaboratorTotal` its length, `POST /api/for-you/people?page=N`
+returns it 20 at a time (`PeopleMatches`), and `POST /api/match/researcher/:id` returns the person's `score`,
+`band` and `rank` from it, with `total` = the ranking's length. So a person shows the same score, band and rank
+everywhere.
+
+- Eligible records: an active grant or trial, any publication (imported from 2024 on), or a grant that ended in the
+  last two calendar years (parent records only). A person is ranked when at least one eligible record scores 12 or
+  more; their score is their best eligible record's score, and their college reason compares their own college with
+  the profile's.
+- Order: score, then how many of their records match, then their latest year, then researcher id. A name never
+  breaks a tie.
+- `ResearcherMatch.eligible` is `false` when none of the person's records is eligible; then `score` is 0, `band` and
+  `rank` are `null` and `records` is empty, and the page says they aren't in your matches rather than showing a
+  number. An eligible person whose records don't match gets the same zeros with `eligible: true`.
 
 Reasons use fixed wording that `frontend/src/lib/matchReasons.ts` parses: `Shares <topics>`, `Supported by
 funder-defined topic data` / `Supported by stored keyword topic data`, `Shares stored terms: <phrases>`, `Linked to
 the same college`, `Expands beyond your college`.
 
-`POST /api/match/researcher/:id` returns that researcher's score and up to six of their records that share profile
-topics or terms, or 404 for an unknown researcher. `POST /api/match/projects` accepts up to 50 project ids and returns
+`POST /api/match/researcher/:id` returns that researcher's place in the ranking and up to six of their eligible
+records that share profile topics or terms, best first, or 404 for an unknown researcher. `POST /api/match/projects` accepts up to 50 project ids and returns
 only positive matches; unknown ids are ignored.
 
 ## `GET /api/colleges` and `GET /api/colleges/:id`

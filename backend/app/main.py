@@ -137,6 +137,12 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
     def for_you(conn: DB, profile: models.ProfileInput) -> models.ForYou:
         return compatibility.for_you(conn, profile)
 
+    @app.post("/api/for-you/people")
+    def for_you_people(
+        conn: DB, profile: models.ProfileInput, page: int = Query(1, ge=1)
+    ) -> models.PeopleMatches:
+        return compatibility.people_matches(conn, profile, page)
+
     @app.post("/api/match/researcher/{researcher_id}")
     def match_researcher(
         conn: DB, researcher_id: str, profile: models.ProfileInput
@@ -173,8 +179,9 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
         return queries.search(conn, "", page, [college_id], kinds=kind)
 
     @app.get("/api/summaries/{kind}/{ref_id}")
-    def summary(conn: DB, kind: models.SummaryKind, ref_id: str) -> models.AISummary:
-        result = summaries.summarize(conn, kind, ref_id)
+    def summary(kind: models.SummaryKind, ref_id: str) -> models.AISummary:
+        # The model call must not occupy one of the small request-pool connections.
+        result = summaries.summarize_pooled(app.state.pool, kind, ref_id)
         if result is None:
             raise HTTPException(404, "Nothing to summarize with that id")
         return result

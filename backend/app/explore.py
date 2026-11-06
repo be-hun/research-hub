@@ -80,6 +80,20 @@ def _college_stats(conn: Connection, kinds: dict[str, list[str]], funding: dict[
     return [models.CollegeStat(college=c, **s) for c, s in ranked]
 
 
+def _unassigned(conn: Connection, kinds: dict[str, list[str]], funding: dict[str, int]) -> models.UnassignedStat:
+    """Records in scope with no college: the row that makes the college rows add up to the header."""
+    kind_of = {i: k for k, v in kinds.items() for i in v}
+    if not kind_of:
+        return models.UnassignedStat(awards=0, funding=0, trials=0, publications=0)
+    assigned = {r["project_id"] for r in conn.execute(
+        f"SELECT DISTINCT project_id FROM project_colleges WHERE project_id IN ({_marks(list(kind_of))})", list(kind_of))}
+    loose = [pid for pid in kind_of if pid not in assigned]
+    counts = Counter(kind_of[pid] for pid in loose)
+    return models.UnassignedStat(awards=counts["award"], funding=sum(funding.get(pid, 0) for pid in loose
+                                                                     if kind_of[pid] == "award"),
+                                 trials=counts["trial"], publications=counts["publication"])
+
+
 def _trend(conn: Connection, ids: list[str]) -> list[models.YearStat]:
     if not ids:
         return []
@@ -219,6 +233,7 @@ def overview(conn: Connection) -> models.Overview:
             SELECT * FROM projects WHERE kind = 'publication' AND length(abstract) > 0
             ORDER BY start_date DESC NULLS LAST, id LIMIT 6""").fetchall()),
         crossCollege=_projects(conn, cross_rows),
+        unassigned=_unassigned(conn, kinds, funding),
     )
 
 
@@ -243,13 +258,13 @@ def topic_detail(conn: Connection, topic_id: str) -> models.TopicDetail | None:
     people: list[models.TopicPerson] = []
     if ids:
         for r in conn.execute(f"""
-            SELECT r.id, r.name, r.college, r.department, COUNT(DISTINCT t.project_id) AS awards
+            SELECT r.id, r.name, r.college, r.department, COUNT(DISTINCT t.project_id) AS records
             FROM project_team t JOIN researchers r ON r.id = t.researcher_id
             WHERE t.project_id IN ({_marks(ids)})
-            GROUP BY r.id ORDER BY awards DESC, r.name LIMIT 12
+            GROUP BY r.id ORDER BY records DESC, r.name LIMIT 12
         """, ids):
             people.append(models.TopicPerson(researcherId=r["id"], name=r["name"], college=r["college"],
-                                             department=r["department"] or "", awards=r["awards"]))
+                                             department=r["department"] or "", records=r["records"]))
 
     # Related topics: the ones that share the most people with this one.
     shared: Counter = Counter()
@@ -274,4 +289,5 @@ def topic_detail(conn: Connection, topic_id: str) -> models.TopicDetail | None:
         trials=_projects(conn, _rows(conn, kinds["trial"], "is_active DESC, start_date DESC NULLS LAST, id", 6)),
         publications=_projects(conn, _rows(conn, kinds["publication"], "start_date DESC NULLS LAST, id", 6)),
         related=related,
+        unassigned=_unassigned(conn, kinds, funding),
     )
