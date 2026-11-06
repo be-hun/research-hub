@@ -297,7 +297,8 @@ Grants.gov page and carries `updatedAt`, the time it was fetched.
     number (`RFA-CA-27-019`) or an agency label (`NSF`), ignoring case, also matches; under `relevance` an exact
     call number ranks first, then `ts_rank` (title above description above number, agency and categories).
     `relevance` without `q` is deadline order. `newest` is `postedDate` descending, ties by title.
-  - A posted call whose `closeDate` is before today is treated as `closed` everywhere: it is hidden unless
+  - A posted call whose `closeDate` is before today, or a forecasted call whose estimated `closeDate` is, is treated
+    as `closed` everywhere: it is hidden unless
     `status=closed` is asked for, counted under `closed` in `facets.status`, and returned with `status: "closed"`.
     `daysLeft` and every comparison with today use the database's `current_date`.
   - `category` keeps calls listing any of the given categories; `closes_within=N` keeps calls whose `closeDate` is

@@ -91,11 +91,13 @@ def test_default_statuses_hide_closed_and_expired_calls():
     add_call(conn, 3, "Closed", status="closed", close=-40)
     add_call(conn, 4, "Expired but still posted", close=-1)
     add_call(conn, 5, "Closes today", close=0)
+    add_call(conn, 6, "Overdue forecast", status="forecasted", close=-3)
     assert ids(find(conn)) == ["gg-5", "gg-1", "gg-2"]
     closed = find(conn, statuses=["closed"])
-    assert ids(closed) == ["gg-3", "gg-4"]
-    assert [r.status for r in closed.results] == ["closed", "closed"]  # the passed deadline wins over "posted"
-    assert ids(find(conn, statuses=["posted", "closed"])) == ["gg-3", "gg-4", "gg-5", "gg-1"]
+    assert ids(closed) == ["gg-3", "gg-6", "gg-4"]
+    assert {r.status for r in closed.results} == {"closed"}  # the passed deadline wins over "posted" or "forecasted"
+    assert ids(find(conn, statuses=["forecasted"])) == ["gg-2"]
+    assert ids(find(conn, statuses=["posted", "closed"])) == ["gg-3", "gg-6", "gg-4", "gg-5", "gg-1"]
 
 
 def test_sort_orders():

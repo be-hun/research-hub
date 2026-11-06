@@ -19,8 +19,10 @@ UNIVERSITY_CODES = ["06", "20"]
 STATUS_LABELS = {"posted": "Open", "forecasted": "Forecasted", "closed": "Closed"}
 
 # A posted call whose deadline has passed is closed, whatever Grants.gov's status still says, so it is filtered,
-# counted and returned as closed.
-STATUS_SQL = "(CASE WHEN o.status = 'posted' AND o.close_date::date < current_date THEN 'closed' ELSE o.status END)"
+# counted and returned as closed. A forecasted call whose estimated deadline has passed is hidden the same way for
+# now (the forecast is stale; the agency may still post it later).
+STATUS_SQL = ("(CASE WHEN o.status IN ('posted', 'forecasted') AND o.close_date::date < current_date THEN 'closed' "
+              "ELSE o.status END)")
 UNIVERSITIES_SQL = ("EXISTS (SELECT 1 FROM opportunity_applicant_types t WHERE t.opportunity_id = o.id AND t.code IN "
                     f"({', '.join(repr(c) for c in UNIVERSITY_CODES)}))")
 COLUMNS = (f"o.*, {STATUS_SQL} AS effective_status, o.close_date::date - current_date AS days_left, "
