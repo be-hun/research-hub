@@ -180,9 +180,15 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
         return result
 
     @app.post("/api/assistant")
-    def assistant_reply(conn: DB, body: models.AssistantRequest) -> models.AssistantReply:
+    def assistant_reply(body: models.AssistantRequest) -> models.AssistantReply:
         try:
-            return assistant.answer(conn, body.messages, body.profile)
+            with app.state.pool.connection() as conn:
+                prepared = assistant.prepare(conn, body.messages, body.profile)
+            if not prepared.records:
+                return assistant._none(assistant.NOTHING_FOUND, assistant.TRY_INSTEAD)
+            result = ai.grounded_answer(assistant.SYSTEM, prepared.api_messages)
+            with app.state.pool.connection() as conn:
+                return assistant.finish(conn, prepared, result, body.profile)
         except ai.AIUnavailable as exc:
             raise HTTPException(503, str(exc)) from exc
 

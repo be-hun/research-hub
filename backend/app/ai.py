@@ -225,7 +225,7 @@ def _anthropic(system: str, messages: list[dict], schema: dict, validate, declin
 
     global _anthropic_client
     if _anthropic_client is None:
-        _anthropic_client = anthropic.Anthropic()
+        _anthropic_client = anthropic.Anthropic(max_retries=1)
     try:
         response = _anthropic_client.beta.messages.create(
             model=MODEL,
