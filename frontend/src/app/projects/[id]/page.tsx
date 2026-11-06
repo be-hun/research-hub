@@ -1,24 +1,33 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import AISummary from "@/components/AISummary";
 import AwardRow from "@/components/AwardRow";
 import YearBars from "@/components/charts/YearBars";
+import OpenCallsForProject from "@/components/opportunities/OpenCallsForProject";
 import SaveButton from "@/components/SaveButton";
 import Section from "@/components/Section";
 import { CollegeTag, KindTag, SourceTag, StatusChip } from "@/components/Tags";
-import { getProject, getProjects } from "@/lib/api";
+import { getProject, getProjectOpportunities, getProjects } from "@/lib/api";
 import { KIND_LABELS } from "@/lib/colleges";
 import { isDemoSignedIn } from "@/lib/demo";
 import { isStaleTrialStatus, money, shortDate } from "@/lib/format";
 import { FUNDER_SERIES } from "@/lib/series";
+import type { Opportunity } from "@/lib/types";
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
   const p = await getProject(params.id);
   return { title: p?.title ?? "Record" };
 }
 
+async function OpenCallsSection({ calls }: { calls: Promise<Opportunity[]> }) {
+  return <OpenCallsForProject calls={await calls} />;
+}
+
 export default async function ProjectPage({ params }: { params: { id: string } }) {
+  // Open calls under the same program stream in after the record; a failed request hides the section.
+  const openCalls = getProjectOpportunities(params.id).catch(() => [] as Opportunity[]);
   const project = await getProject(params.id);
   if (!project) notFound();
   const related = await getProjects(project.relatedProjectIds);
@@ -125,6 +134,12 @@ export default async function ProjectPage({ params }: { params: { id: string } }
               )}
             </div>
           </Section>
+
+          {project.kind === "award" && (
+            <Suspense fallback={null}>
+              <OpenCallsSection calls={openCalls} />
+            </Suspense>
+          )}
 
           {related.length > 0 && (
             <Section title="Related research">

@@ -7,6 +7,7 @@ import AISummary from "@/components/AISummary";
 import CountBars from "@/components/charts/CountBars";
 import CompatibilitySection from "@/components/CompatibilitySection";
 import Illustration from "@/components/Illustration";
+import OpenCallsForResearcher from "@/components/opportunities/OpenCallsForResearcher";
 import ResearcherHeader from "@/components/ResearcherHeader";
 import ResearcherProjects from "@/components/ResearcherProjects";
 import SaveButton from "@/components/SaveButton";
@@ -14,11 +15,11 @@ import Section from "@/components/Section";
 import SectionTabs from "@/components/SectionTabs";
 import { CollegeTag } from "@/components/Tags";
 import YouAndResearcher from "@/components/YouAndResearcher";
-import { getResearcher, getResearcherCompatibility, matchResearcher } from "@/lib/api";
+import { getResearcher, getResearcherCompatibility, getResearcherOpportunities, matchResearcher } from "@/lib/api";
 import { COLLEGES, KIND_LABELS } from "@/lib/colleges";
 import { demoProfileInput } from "@/lib/demo";
 import { count, shortDate } from "@/lib/format";
-import type { Kind, ProfileInput, ResearcherCompatibility, ResearcherMatch } from "@/lib/types";
+import type { Kind, ProfileInput, ResearcherCompatibility, ResearcherMatch, ResearcherOpportunity } from "@/lib/types";
 
 const EVIDENCE: Record<string, string> = {
   "source-person-id": "Source person ID",
@@ -53,6 +54,10 @@ async function RelatedSection({ compatibility }: { compatibility: Promise<Resear
   return c ? <CompatibilitySection compatibility={c} /> : null;
 }
 
+async function OpenCallsSection({ name, calls }: { name: string; calls: Promise<ResearcherOpportunity[]> }) {
+  return <OpenCallsForResearcher name={name} calls={await calls} />;
+}
+
 function MatchSkeleton({ className }: { className: string }) {
   return <div className={`animate-pulse rounded-xl border ${className}`} aria-busy="true" aria-label="Loading matches" />;
 }
@@ -65,9 +70,10 @@ export default async function ResearcherPage({
   searchParams: { kind?: string };
 }) {
   const demo = demoProfileInput();
-  // All three requests start together; only the profile holds up the page.
+  // All four requests start together; only the profile holds up the page.
   const youMatch = demo ? matchResearcher(params.id, demo).catch(() => null) : null;
   const compatibility = getResearcherCompatibility(params.id).catch(() => null);
+  const openCalls = getResearcherOpportunities(params.id).catch(() => [] as ResearcherOpportunity[]);
   const r = await getResearcher(params.id);
   if (!r) notFound();
   const kind = KINDS.find((k) => k === searchParams.kind);
@@ -156,6 +162,10 @@ export default async function ResearcherPage({
               )}
             </div>
           </Section>
+          {/* Hidden while loading and when no open call fits: many profiles have none, so no placeholder. */}
+          <Suspense fallback={null}>
+            <OpenCallsSection name={r.name} calls={openCalls} />
+          </Suspense>
           <Suspense fallback={<MatchSkeleton className="h-64 bg-surface border-line" />}>
             <RelatedSection compatibility={compatibility} />
           </Suspense>
