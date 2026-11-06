@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { plainReasons } from "@/lib/matchReasons";
 import type { ResearcherMatch } from "@/lib/types";
 import AwardRow from "./AwardRow";
 
@@ -24,7 +25,7 @@ export default function YouAndResearcher({ name, match }: { name: string; match:
               ))}
             </div>
           )}
-          {match.reasons.length > 0 && <p className="text-small text-ink-2">{match.reasons.join(" · ")}</p>}
+          {match.reasons.length > 0 && <p className="text-small text-ink-2">{plainReasons(match.reasons)}</p>}
           {match.records.length > 0 && (
             <ul className="bg-surface border border-line rounded-lg px-4">
               {match.records.slice(0, 3).map((p) => (

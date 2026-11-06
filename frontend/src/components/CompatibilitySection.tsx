@@ -1,5 +1,6 @@
 import AwardRow from "@/components/AwardRow";
 import Section from "@/components/Section";
+import { plainReasons } from "@/lib/matchReasons";
 import type { ResearcherCompatibility } from "@/lib/types";
 
 export default function CompatibilitySection({ compatibility }: { compatibility: ResearcherCompatibility }) {
@@ -7,7 +8,7 @@ export default function CompatibilitySection({ compatibility }: { compatibility:
     <Section
       id="compatibility"
       title="Compatible active research"
-      subtitle="A transparent match based on shared topics, stored terms, and college links."
+      subtitle="A transparent match based on shared topics, keywords and colleges in public records."
     >
       {compatibility.matches.length === 0 ? (
         <div className="bg-surface border border-line rounded-xl p-5 text-small text-ink-2">
@@ -21,7 +22,7 @@ export default function CompatibilitySection({ compatibility }: { compatibility:
                 <span className="text-tiny font-semibold uppercase tracking-wider text-ink-3">Compatibility</span>
                 <span className="text-small font-semibold text-cherry num">{match.score}/100</span>
               </div>
-              <AwardRow project={match.project} context={match.reasons.join(" · ")} />
+              <AwardRow project={match.project} context={plainReasons(match.reasons, [], false)} />
             </li>
           ))}
         </ul>
