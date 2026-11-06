@@ -30,6 +30,7 @@ const SUGGESTIONS = [
   "Who at Temple studies Alzheimer's disease?",
   "What opioid addiction research is happening across Temple colleges?",
   "Which heart failure clinical trials are at Temple?",
+  "Build me a team for a grant on machine learning in cardiovascular disease",
 ];
 
 /** The [n] number that ties a sentence in the summary to a card below it. */
@@ -88,7 +89,16 @@ function RecordCard({ record }: { record: AssistantRecord }) {
   );
 }
 
-function PersonCard({ person, profile }: { person: AssistantPerson; profile: ProfileInput | null }) {
+/** A person in a people answer, or a member of a suggested team (then `focus` is what they bring to it). */
+function PersonCard({
+  person,
+  profile,
+  team = false,
+}: {
+  person: AssistantPerson;
+  profile: ProfileInput | null;
+  team?: boolean;
+}) {
   const t = person.totals;
   const totals = [
     t.grants && count(t.grants, "grant"),
@@ -97,7 +107,7 @@ function PersonCard({ person, profile }: { person: AssistantPerson; profile: Pro
   ].filter(Boolean);
   return (
     <li className="bg-surface border border-line rounded-xl p-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
         <div className="min-w-0">
           <Link
             href={
@@ -115,23 +125,32 @@ function PersonCard({ person, profile }: { person: AssistantPerson; profile: Pro
             </span>
           )}
           <div className="flex flex-wrap items-center gap-x-2 mt-0.5">
-            <CollegeTag id={person.college} />
+            <CollegeTag id={person.college} short={!team} />
+            {team && !person.college && <span className="text-tiny text-ink-3">College not listed</span>}
             {person.department && <span className="text-tiny text-ink-3 truncate">{person.department}</span>}
           </div>
         </div>
         {totals.length > 0 && (
-          <span className="text-tiny text-ink-3 text-right shrink-0 num">{totals.join(" · ")} at Temple</span>
+          <span className="text-tiny text-ink-3 sm:text-right shrink-0 num">{totals.join(" · ")} at Temple</span>
         )}
       </div>
-      {person.focus && <p className="text-small text-ink-2 mt-2">{person.focus}</p>}
+      {person.focus &&
+        (team ? (
+          <p className="text-small text-ink-2 mt-2">
+            <span className="font-semibold text-ink">Brings: </span>
+            {person.focus}
+          </p>
+        ) : (
+          <p className="text-small text-ink-2 mt-2">{person.focus}</p>
+        ))}
       <ul className="mt-2 space-y-1">
         {person.records.map((r) => (
-          <li key={r.id} className="flex items-baseline gap-2 text-tiny">
+          <li key={r.id} className="flex items-baseline gap-2 text-tiny min-w-0">
             <Num n={r.n} />
             <span className="text-ink-3 shrink-0">
               {KIND_LABELS[r.kind]} · {r.role}
             </span>
-            <Link href={`/projects/${r.id}`} className="text-ink-2 hover:text-cherry hover:underline truncate">
+            <Link href={`/projects/${r.id}`} className="min-w-0 text-ink-2 hover:text-cherry hover:underline truncate">
               {r.title}
             </Link>
           </li>
@@ -159,13 +178,35 @@ function Answer({
   onAsk: (q: string) => void;
   profile: ProfileInput | null;
 }) {
+  const isTeam = reply.mode === "team";
   const isPeople = reply.mode === "people";
   const n = isPeople ? reply.people.length : reply.records.length;
+  const colleges = new Set(reply.people.map((p) => p.college).filter(Boolean)).size;
   return (
     <div className="space-y-4">
       <Summary text={reply.summary} />
       {reply.searchedFor && <p className="text-tiny text-ink-3">Searched: {reply.searchedFor}</p>}
-      {n > 0 && (
+      {isTeam && reply.people.length > 0 && (
+        <section>
+          <h3 className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-tiny font-semibold uppercase tracking-wider text-ink-3">
+            <Icon name="group" size={16} />
+            Suggested team
+            <span className="font-normal normal-case tracking-normal">
+              · {count(reply.people.length, "researcher")}
+              {colleges > 1 && ` from ${count(colleges, "college")}`}
+            </span>
+          </h3>
+          <p className="text-tiny text-ink-3 mt-1 mb-2">
+            Picked to span colleges. Each &quot;Brings&quot; line is written by AI from the records listed under it.
+          </p>
+          <ul className="space-y-2">
+            {reply.people.map((p) => (
+              <PersonCard key={p.name} person={p} profile={profile} team />
+            ))}
+          </ul>
+        </section>
+      )}
+      {!isTeam && n > 0 && (
         <section>
           <h3 className="flex items-center gap-1.5 text-tiny font-semibold uppercase tracking-wider text-ink-3 mb-2">
             <Icon name={isPeople ? "group" : "description"} size={16} />
@@ -317,7 +358,9 @@ export default function AssistantChat({
       <div className="min-h-[300px] space-y-6" aria-live="polite">
         {messages.length === 0 && (
           <div className="space-y-2">
-            <p className="text-small text-ink-3">Ask about people (who works on something) or about the research itself.</p>
+            <p className="text-small text-ink-3">
+              Ask about people (who works on something), the research itself, or a team for a grant.
+            </p>
             {suggestions.map((s) => (
               <button
                 key={s}

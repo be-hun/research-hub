@@ -133,3 +133,66 @@ def test_profile_people_question_retrieves_ranked_records(client, fake_model):
         "messages": [{"role": "user", "text": "Who studies Alzheimer's disease?"}],
     })
     assert response.status_code == 200
+
+
+def team_record(n, title, org_type, first, last):
+    return record(appl_id=100 + n, core_project_num=f"R01HL00000{n}", project_title=title,
+                  organization={"dept_type": None}, organization_type={"name": org_type},
+                  principal_investigators=[{"profile_id": 100 + n, "first_name": first, "middle_name": "",
+                                            "last_name": last, "is_contact_pi": True}])
+
+
+@pytest.fixture
+def team_client():
+    app = create_app()
+    load(app.state.db, merge([normalize([
+        team_record(1, "Machine learning for cardiovascular risk", "SCHOOLS OF MEDICINE", "ANA", "LOPEZ"),
+        team_record(2, "Machine learning of cardiovascular images", "SCHOOLS OF MEDICINE", "BEN", "KIM"),
+        team_record(3, "Community cardiovascular prevention", "SCHOOLS OF PUBLIC HEALTH", "CARA", "DIAZ"),
+        team_record(4, "Machine learning sensors for the heart", "BIOMED ENGR/COL ENGR/ENGR STA", "DAN", "WU"),
+    ])]))
+    return TestClient(app)
+
+
+TEAM = [("Ana Lopez", "Clinical risk models"), ("Ben Kim", "Cardiac imaging models"),
+        ("Cara Diaz", "Community prevention"), ("Dan Wu", "Wearable heart sensors")]
+
+
+def test_team_question_retrieves_every_part_and_reads_colleges_from_the_database(team_client, fake_model):
+    calls = fake_model({
+        "mode": "research",  # the wording asks for a team, so the reply is a team whatever the model says
+        "summary": "Clinical models [1] [2] with prevention [3] and sensing [4].",
+        "people": [{"name": n, "focus": f, "records": []} for n, f in TEAM]
+                  + [{"name": "Invented Person", "focus": "Not in any record", "records": [1]}],
+    })
+    body = ask(team_client, "Build me a team for a grant on machine learning and cardiovascular prevention").json()
+    assert body["mode"] == "team" and body["records"] == []
+    assert body["searchedFor"].startswith("Team candidates across colleges")
+    assert [(p["name"], p["college"], p["focus"]) for p in body["people"]] == [
+        ("Ana Lopez", "medicine", "Clinical risk models"), ("Ben Kim", "medicine", "Cardiac imaging models"),
+        ("Cara Diaz", "public-health", "Community prevention"), ("Dan Wu", "engineering", "Wearable heart sensors")]
+    assert all(p["researcherId"] and len(p["records"]) == 1 for p in body["people"])
+    sent = calls[0][-1]["content"]
+    # No record has the whole topic; the parts ("machine learning", "cardiovascular prevention") find all four.
+    assert sent.count("<record number=") == 4
+    assert "<team_candidates>" in sent and "public-health: Cara Diaz" in sent and "answer in mode team" in sent
+
+
+def test_team_spreads_picks_across_colleges(team_client, fake_model, monkeypatch):
+    from app import assistant
+    monkeypatch.setattr(assistant, "TEAM_SIZE", 3)
+    fake_model({"mode": "team", "summary": "A team [1] [2] [3] [4].",
+                "people": [{"name": n, "focus": f, "records": []} for n, f in TEAM]})
+    body = ask(team_client, "Who should I collaborate with on machine learning for cardiovascular prevention?").json()
+    # With room for three, the second Medicine person gives way to Public Health and Engineering.
+    assert body["mode"] == "team"
+    assert [p["name"] for p in body["people"]] == ["Ana Lopez", "Cara Diaz", "Dan Wu"]
+    shown = {r["n"] for p in body["people"] for r in p["records"]}
+    assert set(map(int, __import__("re").findall(r"\[(\d+)\]", body["summary"]))) == shown
+
+
+def test_model_can_choose_team_mode_but_one_person_is_a_people_answer(team_client, fake_model):
+    fake_model({"mode": "team", "summary": "Ana Lopez fits [1] [2] [3] [4].",
+                "people": [{"name": "Ana Lopez", "focus": "Clinical risk models", "records": [1]}]})
+    body = ask(team_client, "Which machine learning experts are there?").json()
+    assert body["mode"] == "people" and [p["name"] for p in body["people"]] == ["Ana Lopez"]

@@ -47,7 +47,7 @@ export function answerSearchHref(reply: AssistantReply, question: string): strin
 }
 
 function savedItems(reply: AssistantReply): SavedItem[] {
-  if (reply.mode === "people") {
+  if (reply.mode === "people" || reply.mode === "team") {
     return reply.people.flatMap((p) =>
       p.researcherId ? [{ kind: "researcher" as const, id: p.researcherId, title: p.name, detail: p.department || undefined }] : [],
     );

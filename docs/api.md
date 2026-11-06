@@ -241,6 +241,16 @@ Body: `AssistantRequest`, i.e. `{ messages: { role: "user" | "assistant", text: 
   full `Project` from the database plus a one-line `takeaway`) or `mode: "people"` (`people`: researchers on those
   records, with their records and totals read from the database plus a short `focus`). The list for the other mode
   is empty.
+- Team mode. A question that asks for a team or collaborators ("build me a team for...", "who should I team up
+  with on...", "collaborate", "co-investigator", "partner") is searched more broadly: the whole topic, each part of
+  it split on words like "in", "and" and "with" ("AI in cardiology" also searches "ai" and "cardiology"), and the
+  top records from colleges those searches found but the mix doesn't cover yet, up to 14 records. The model also
+  gets the people on those records grouped by their college (from the database). It answers in `mode: "team"`
+  (the model may also choose it): `people` holds 2–5 `AssistantPerson`s, where `focus` is the model's line on what
+  that person brings to the team and everything else is read from the database, as in people mode. The backend
+  spreads the model's picks across colleges, taking one person per college in turn (best first) before a second
+  person from the same college, and shows them in the model's order. If fewer than two named people are on the
+  retrieved records, the answer falls back to people or research mode. `records` is empty.
 - The `summary` cites records inline as `[n]`. Citations that don't point at a record or person shown are dropped,
   people who aren't on a retrieved record's team are dropped, and a summary left with no valid citation becomes a
   `mode: "none"` "couldn't answer" reply. `followUps` suggests next questions.

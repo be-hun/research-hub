@@ -302,14 +302,14 @@ export interface AssistantPerson {
   name: string;
   department: string;
   college: CollegeId | null;
-  focus: string; // a few words from the model
+  focus: string; // a few words from the model; in team mode, what this person brings to the team
   records: PersonRecord[]; // retrieved records they appear on
   totals: PersonCounts; // every Temple record they appear on
   inYourMatches: boolean; // one of the profile's For you collaborators; false when no profile was sent
 }
 
 export interface AssistantReply {
-  mode: "people" | "research" | "none"; // none: nothing found or not answerable
+  mode: "people" | "research" | "team" | "none"; // team: people spread across colleges; none: nothing found
   summary: string;
   records: AssistantRecord[];
   people: AssistantPerson[];

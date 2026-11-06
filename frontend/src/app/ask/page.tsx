@@ -10,6 +10,7 @@ const DEMO_SUGGESTIONS = [
   "Who could help with my cardiac sensor project?",
   "Which recruiting trials use devices or sensors for the heart?",
   "Who outside Engineering works on machine learning for health?",
+  "Build me a team for a grant on machine learning in cardiovascular disease",
 ];
 
 export default function AskPage({ searchParams }: { searchParams: { q?: string | string[] } }) {

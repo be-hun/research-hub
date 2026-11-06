@@ -1,12 +1,14 @@
 """Grounded assistant: retrieve stored records, let the model answer only from them, keep only real citations.
 
-The model returns a short summary plus either records (research questions) or people (who-works-on questions).
+The model returns a short summary plus either records (research questions), people (who-works-on questions) or a
+team (who-should-I-team-up-with questions: complementary people, spread across colleges in code).
 Everything shown about a record or person besides the model's one-line takeaway or focus is read from the database.
 """
 
 import json
 import re
 from dataclasses import dataclass
+from itertools import zip_longest
 
 from app import ai, compatibility, models, queries
 from app.db import Connection, Row
@@ -16,6 +18,22 @@ from app.topics import topics_from_text
 MAX_RECORDS = 8
 MAX_ITEMS = 6
 MAX_FOLLOW_UPS = 3
+TEAM_SIZE = 5  # team mode shows 3-5 people, at most this many
+TEAM_PICKS = 8  # the model may name this many candidates; code keeps TEAM_SIZE of them, spread across colleges
+MAX_TEAM_RECORDS = 14
+TEAM_PER_SEARCH = 6  # records taken from each part of a team question ("AI", "cardiology") before mixing
+TEAM_QUESTION = re.compile(
+    r"\b(?:teams?|team(?:ing)?\s+up|collaborat\w*|co-?investigators?|co-?pis?|partners?|partner\s+with|"
+    r"build\s+(?:me\s+)?(?:a|an|my)\s+(?:group|team)|assemble|multidisciplinary|interdisciplinary)\b"
+)
+# Words that describe the team or the proposal, not the research topic.
+TEAM_FILLER = {
+    "build", "team", "teams", "teaming", "up", "group", "assemble", "collaborate", "collaborator", "collaborators",
+    "collaboration", "collaborative", "partner", "partners", "investigator", "investigators", "co", "pi", "pis",
+    "grant", "grants", "proposal", "application", "submission", "multidisciplinary", "interdisciplinary", "need",
+    "want", "looking", "put", "together", "form", "join", "on", "for", "a", "an", "the", "in", "and", "with", "of",
+    "to", "who", "should", "i", "me", "my", "we", "our",
+}
 FILLER_WORDS = {
     "who", "whom", "which", "what", "could", "would", "should", "can", "help", "find", "someone", "anyone",
     "me", "my", "i", "our", "we", "us", "you", "please", "now", "currently", "work", "works", "working",
@@ -45,6 +63,9 @@ class Prepared:
     searched_for: str
     collaborators: list[models.CollaboratorMatch]
     profile_collaborators: list[models.CollaboratorMatch]
+    team: bool = False  # the question asks for a team; retrieval was broadened and the reply is spread across colleges
+
+
 NOTHING_FOUND = "I couldn't find Temple research records that match that question."
 UNGROUNDED = "I found related records but couldn't answer from them with confidence."
 TRY_INSTEAD = [
@@ -69,13 +90,19 @@ each with a focus of at most 10 words and the record numbers they appear on. Lea
 - mode "research": they want to know about the work itself (what is being studied, which trials, what funding). \
 Fill records with the most relevant record numbers, best first, each with a takeaway of at most 15 words. \
 Leave people empty.
+- mode "team": they want to build a team or find collaborators, co-investigators or partners ("build me a team \
+for...", "who should I team up with on..."). Fill people with up to 8 complementary Temple researchers named in \
+the records, best first, preferring people from different colleges (see team_candidates when given) whose \
+records cover different parts of the question. Each focus says what that person brings to the team, at most 12 \
+words, based only on their records. The summary says in one or two sentences how the team fits together. \
+Leave records empty.
 
 Rules:
 - Use only facts stated in the records. Never add projects, people, dates, amounts or findings that are not in them.
 - summary: one or two short sentences, at most 40 words, that answer the question directly and cite record \
 numbers like [2]. Don't repeat details the cards will show (titles, years, statuses, funder lists).
 - Write people's names exactly as they appear in the records.
-- Include at most 6 records or 6 people. Skip records that are only loosely related.
+- Include at most 6 records or 6 people (8 people in team mode). Skip records that are only loosely related.
 - A grant record is funding history, not proof that a study is active or recruiting. A trial's status comes \
 from the registry and may be out of date.
 - Funding types are inferred from funder names; say "listed funders" rather than stating them as certain.
@@ -181,6 +208,77 @@ def _retrieve_question(conn: Connection, question: str, profile: models.ProfileI
     return records[:MAX_RECORDS], (label + suffix)[:90], collaborators, profile_collaborators
 
 
+def _team_topic(question: str) -> tuple[str, list[str]]:
+    """The research topic of a team question, plus its parts ("AI in cardiology" -> "ai", "cardiology")."""
+    def words(text: str) -> list[str]:
+        return [w for w in re.findall(r"[a-z0-9]+", re.sub(r"['\u2019]s\b", "", text))
+                if w not in FILLER_WORDS and w not in TEAM_FILLER]
+
+    lower = question.lower()
+    query = " ".join(dict.fromkeys(words(lower)))
+    chunks = re.split(r"\b(?:in|and|with|for|on|of|plus|across|between|to|meets)\b|[,;&/+]", lower)
+    parts = [p for p in dict.fromkeys(" ".join(words(c)) for c in chunks) if p and p != query]
+    return query, parts[:3]
+
+
+def _retrieve_team(conn: Connection, question: str) -> tuple[list[Row], str]:
+    """Records for a team question, searched broadly: the whole topic, each part of it, and the top record from each
+    college those searches found that the mix doesn't cover yet, so the people on them span several colleges."""
+    query, parts = _team_topic(question)
+    if not query:
+        return [], ""
+    searches = [queries.search(conn, q) for q in [query] + parts]
+    ids: list[str] = []
+    for group in zip_longest(*[[p.id for p in s.results[:TEAM_PER_SEARCH]] for s in searches]):
+        ids.extend(i for i in group if i and i not in ids)
+    covered = {c for r in record_rows(conn, ids) for c in (r["colleges"] or "").split(",") if c}
+    extra_searches = 0
+    for search in searches:
+        for facet in search.facets.colleges:
+            if facet.value in covered or extra_searches == 4:
+                continue
+            extra_searches += 1
+            top = queries.search(conn, search.query, colleges=[facet.value]).results[:2]
+            ids.extend(p.id for p in top if p.id not in ids)
+            covered.add(facet.value)
+    records = record_rows(conn, ids[:MAX_TEAM_RECORDS])
+    return records, f"Team candidates across colleges · {query}"[:90]
+
+
+def _team_candidates(conn: Connection, records: list[Row]) -> str:
+    """The people on the retrieved records grouped by their college (from the database), for the model to mix."""
+    ids = [r["id"] for r in records]
+    number = {r["id"]: n for n, r in enumerate(records, start=1)}
+    rows = conn.execute(f"""
+        SELECT t.project_id, t.name, r.college FROM project_team t LEFT JOIN researchers r ON r.id = t.researcher_id
+        WHERE t.project_id IN ({','.join('?' * len(ids))}) ORDER BY t.position
+    """, ids).fetchall()
+    people: dict[str, dict] = {}
+    for row in sorted(rows, key=lambda t: number[t["project_id"]]):
+        person = people.setdefault(name_key(row["name"]), {"name": row["name"], "college": row["college"], "on": []})
+        if number[row["project_id"]] not in person["on"]:
+            person["on"].append(number[row["project_id"]])
+    by_college: dict[str, list[str]] = {}
+    for person in people.values():
+        names = by_college.setdefault(person["college"] or "college not listed", [])
+        if len(names) < 4:
+            names.append(f"{person['name']} {person['on']}")
+    return "\n".join(f"{college}: {'; '.join(names)}" for college, names in by_college.items())
+
+
+def _spread_team(people: list[models.AssistantPerson]) -> list[models.AssistantPerson]:
+    """Keep TEAM_SIZE of the model's picks, one per college in turn (best first), then return them in the model's order."""
+    buckets: dict[str, list[int]] = {}
+    for i, person in enumerate(people):
+        buckets.setdefault(person.college or f"unknown-{i}", []).append(i)
+    keep: list[int] = []
+    while len(keep) < min(TEAM_SIZE, len(people)):
+        for bucket in buckets.values():
+            if bucket and len(keep) < TEAM_SIZE:
+                keep.append(bucket.pop(0))
+    return [people[i] for i in sorted(keep)]
+
+
 def record_rows(conn: Connection, ids: list[str]) -> list[Row]:
     """Records with their colleges, lead team and funders, in the given order, as `format_record` reads them."""
     if not ids:
@@ -238,7 +336,8 @@ def _records(conn: Connection, records: list[Row], picks: list[dict]) -> list[mo
             for n, t in chosen.items() if records[n - 1]["id"] in projects]
 
 
-def _people(conn: Connection, records: list[Row], picks: list[dict]) -> list[models.AssistantPerson]:
+def _people(conn: Connection, records: list[Row], picks: list[dict],
+            limit: int = MAX_ITEMS) -> list[models.AssistantPerson]:
     """The model's people, kept only if they are on a retrieved record's team. Records and counts come from the DB."""
     ids = [r["id"] for r in records]
     number = {r["id"]: n for n, r in enumerate(records, start=1)}
@@ -273,7 +372,7 @@ def _people(conn: Connection, records: list[Row], picks: list[dict]) -> list[mod
             totals=models.PersonCounts(grants=counts.get("award", 0), trials=counts.get("trial", 0),
                                        publications=counts.get("publication", 0)),
         ))
-        if len(out) == MAX_ITEMS:
+        if len(out) == limit:
             break
     return out
 
@@ -298,9 +397,15 @@ def prepare(conn: Connection, messages: list[models.ChatMessage],
             profile: models.ProfileInput | None = None) -> Prepared:
     messages = _recent_messages(messages)
     question = messages[-1].text
-    records, searched_for, collaborators, profile_collaborators = _retrieve_question(conn, question, profile)
+    team = bool(TEAM_QUESTION.search(question.lower()))
+    records, searched_for = _retrieve_team(conn, question) if team else ([], "")
+    if records:
+        collaborators = []
+        profile_collaborators = compatibility.for_you(conn, profile).collaborators if profile else []
+    else:
+        records, searched_for, collaborators, profile_collaborators = _retrieve_question(conn, question, profile)
     if not records:
-        return Prepared([], [], searched_for, collaborators, profile_collaborators)
+        return Prepared([], [], searched_for, collaborators, profile_collaborators, team)
     context = "\n\n".join(format_record(n, r) for n, r in enumerate(records, start=1))
     history = [{"role": m.role, "content": m.text} for m in messages[:-1]]
     profile_context = ""
@@ -312,11 +417,18 @@ def prepare(conn: Connection, messages: list[models.ChatMessage],
             f"{json.dumps(profile.model_dump(), ensure_ascii=True)}\n"
             "</user_profile>"
         )
+    team_context = ""
+    if team:
+        team_context = (
+            "\n\n<team_candidates>\nPeople on these records by college (from the database), with the records "
+            f"they appear on:\n{_team_candidates(conn, records)}\n</team_candidates>\n"
+            "The user is asking for a team: answer in mode team."
+        )
     api_messages = history + [{
         "role": "user",
-        "content": f"<records>\n{context}\n</records>{profile_context}\n\nQuestion: {question}",
+        "content": f"<records>\n{context}\n</records>{profile_context}{team_context}\n\nQuestion: {question}",
     }]
-    return Prepared(records, api_messages, searched_for, collaborators, profile_collaborators)
+    return Prepared(records, api_messages, searched_for, collaborators, profile_collaborators, team)
 
 
 def finish(conn: Connection, prepared: Prepared, result: dict,
@@ -326,21 +438,24 @@ def finish(conn: Connection, prepared: Prepared, result: dict,
         return _none(NOTHING_FOUND, TRY_INSTEAD)
     if not result.get("answerable"):
         return _none(result.get("summary") or NOTHING_FOUND, follow_ups or TRY_INSTEAD)
-    people = _people(conn, prepared.records, result.get("people", []))
+    mode = result.get("mode")
+    team = prepared.team or mode == "team"
+    people = _people(conn, prepared.records, result.get("people", []), TEAM_PICKS if team else MAX_ITEMS)
     match_ids = {p.researcherId for p in prepared.profile_collaborators}
     for person in people:
         person.inYourMatches = bool(person.researcherId and person.researcherId in match_ids)
     order = {p.researcherId: n for n, p in enumerate(prepared.collaborators)}
     people.sort(key=lambda p: order.get(p.researcherId, len(order)))
     cards = _records(conn, prepared.records, result.get("records", []))
-    mode = result.get("mode")
-    if mode == "people" and not people and cards:
-        mode = "research"
-    elif mode != "people" and not cards and people:
-        mode = "people"
-    elif mode != "people":
-        mode = "research"
+    if team and len(people) >= 2:
+        mode, people = "team", _spread_team(people)
+    elif mode in ("people", "team"):
+        mode = "people" if people or not cards else "research"
+    else:
+        mode = "research" if cards or not people else "people"
     if mode == "people":
+        people = people[:MAX_ITEMS]
+    if mode in ("people", "team"):
         valid, cards = {r.n for p in people for r in p.records}, []
     else:
         valid, people = {c.n for c in cards}, []

@@ -332,14 +332,14 @@ class AssistantPerson(BaseModel):
     name: str
     department: str
     college: CollegeId | None
-    focus: str  # a few words from the model
+    focus: str  # a few words from the model; in team mode, what this person brings to the team
     records: list[PersonRecord]  # retrieved records they appear on
     totals: PersonCounts  # every Temple record they appear on
     inYourMatches: bool = False  # one of the profile's For you collaborators; false when no profile was sent
 
 
 class AssistantReply(BaseModel):
-    mode: Literal["people", "research", "none"]  # none: nothing found or not answerable
+    mode: Literal["people", "research", "team", "none"]  # team: people spread across colleges; none: nothing found
     summary: str
     records: list[AssistantRecord]
     people: list[AssistantPerson]
