@@ -35,7 +35,7 @@ def test_search_text_matches_sqlite_tokenizer():
     assert search_text("infection/disease, 14-19 COVID-19") == "infection disease 14 19 COVID 19"
 
 
-def test_search_ranks_records_with_every_word_first_and_ignores_accents():
+def test_search_lists_records_with_every_word_and_ignores_accents():
     from app import queries
     from ingest.load import load, merge
     from ingest.nih_reporter import normalize
@@ -44,7 +44,7 @@ def test_search_ranks_records_with_every_word_first_and_ignores_accents():
     conn = connect()
     init_schema(conn)
     load(conn, merge([normalize([
-        # "learning" many times but never "machine": matches the query, ranks below the record with both words
+        # "learning" many times but never "machine": not a result for "machine learning", only for a fallback query
         record(appl_id=1, core_project_num="R01AG000001", project_title="Learning, learning and more learning",
                abstract_text="Learning learning learning.", phr_text="", pref_terms="",
                principal_investigators=[{"profile_id": 12, "first_name": "LEE", "middle_name": "",
@@ -55,7 +55,9 @@ def test_search_ranks_records_with_every_word_first_and_ignores_accents():
                                          "last_name": "PRATICÒ", "is_contact_pi": True}]),
     ])]))
     results = queries.search(conn, "machine learning").results
-    assert [r.id for r in results] == ["nih-R01AG000002", "nih-R01AG000001"]
+    assert [r.id for r in results] == ["nih-R01AG000002"]
+    # No record has both words, so any of them will do.
+    assert {r.id for r in queries.search(conn, "learning robots").results} == {"nih-R01AG000001", "nih-R01AG000002"}
     assert [r.id for r in queries.search(conn, "pratico").results] == ["nih-R01AG000002"]
 
 

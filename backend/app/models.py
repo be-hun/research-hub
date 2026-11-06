@@ -29,6 +29,7 @@ class Source(BaseModel):
 class Match(BaseModel):
     reason: str
     evidence: list[str]
+    snippet: str | None = None  # search only: ~30 words of the abstract around the matched words, each one in ⟦ ⟧
 
 
 class Project(BaseModel):
@@ -279,7 +280,7 @@ class ChatMessage(BaseModel):
 
 
 class AssistantRequest(BaseModel):
-    messages: list[ChatMessage] = Field(min_length=1, max_length=8)
+    messages: list[ChatMessage] = Field(min_length=1, max_length=40)  # only the last 8 are used, from a user turn
     profile: ProfileInput | None = None
 
     @model_validator(mode="after")
@@ -310,12 +311,14 @@ class PersonCounts(BaseModel):
 
 
 class AssistantPerson(BaseModel):
+    researcherId: str | None = None  # their profile, /researchers/{researcherId}; null when no record links one
     name: str
     department: str
     college: CollegeId | None
     focus: str  # a few words from the model
     records: list[PersonRecord]  # retrieved records they appear on
     totals: PersonCounts  # every Temple record they appear on
+    inYourMatches: bool = False  # one of the profile's For you collaborators; false when no profile was sent
 
 
 class AssistantReply(BaseModel):
@@ -324,6 +327,7 @@ class AssistantReply(BaseModel):
     records: list[AssistantRecord]
     people: list[AssistantPerson]
     followUps: list[str]
+    searchedFor: str = ""  # one plain line saying what was retrieved, e.g. "Recruiting clinical trials · heart failure"
 
 
 class FacetValue(BaseModel):
@@ -341,9 +345,15 @@ class Facets(BaseModel):
     topics: list[FacetValue]
 
 
+# phrase: the top results contain the exact phrase; all: every result contains every word; any: no record had all
+# the words, so results have any of them; browse: no query.
+MatchMode = Literal["phrase", "all", "any", "browse"]
+
+
 class SearchResponse(BaseModel):
     query: str
     interpretedAs: str
+    matchMode: MatchMode = "browse"
     total: int
     page: int
     pageSize: int

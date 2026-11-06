@@ -77,16 +77,32 @@ define it, colleges, trend, top investigators, awards, related topics). 404 if u
 | `page`    | int      | 1-based, 10 results per page            |
 | `college` | repeated | `CollegeId`                             |
 | `funder`  | repeated | `NIH`, `NSF`, `CDC`, `AHRQ`             |
-| `status`  | repeated | `active` \| `ended`                     |
+| `status`  | repeated | `active` \| `ended` \| `recruiting` (trials: Recruiting, Not yet recruiting, Enrolling by invitation) |
 | `topic`   | repeated | topic id                                |
 | `kind`    | repeated | `award` \| `trial` \| `publication`     |
 | `funding` | repeated | funding type key, e.g. `industry`, `foundation` |
 
-Returns `SearchResponse`: `{ query, interpretedAs, total, page, pageSize, results: Project[], facets }`.
-`facets` gives counts per college, funder, status and topic; each facet ignores its own filter, so the other values
-stay selectable. Each result may include `match: { reason, evidence[] }` naming which stored fields matched.
-With `q`, results containing the words as an exact phrase come first, then those containing all of the words,
-then the rest by relevance (title weighs most).
+Returns `SearchResponse`: `{ query, interpretedAs, matchMode, total, page, pageSize, results: Project[], facets }`.
+`facets` gives counts per college, funder, status and topic for the same records as the list; each facet ignores
+its own filter, so the other values stay selectable. `facets.status` adds a `recruiting` value when any result is a
+trial taking participants.
+
+With `q`, a result must contain the words as a phrase or all of the words (stemmed, in the title, abstract, people
+or subject terms). Exact-phrase records come first, then the rest by relevance (title weighs most). Only when no
+record has every word does the search fall back to records with any of them. `matchMode` says which happened:
+
+- `phrase`: the top results contain the exact phrase (two or more words);
+- `all`: the results contain every word (always the case for a one-word query);
+- `any`: no record had all the words together, so the results have any of them;
+- `browse`: no query; results are ordered grants first, active first, newest first.
+
+A query with `"quoted phrases"` or `-excluded` words is read with Postgres `websearch_to_tsquery` (same fallback,
+which ignores the exclusions).
+
+Each result may include `match: { reason, evidence[], snippet }`. `reason` and `evidence` name which stored fields
+matched. `snippet` is about 30 words of the abstract around the matched words, each matched word wrapped in `⟦` and
+`⟧` (prefixed or followed by `…` when cut), or null when the abstract has no query word or the record's only text
+is its title.
 
 ## `GET /api/projects/:id`
 
@@ -120,6 +136,11 @@ Returns `ResearcherProfile`, or `404` when the id is unknown **or no stored reco
 The People directory. Returns `PeopleResponse`: researchers matching `q` (up to 200 characters), filtered by
 `college` (unknown ids are ignored) and `kind`, sorted by `records` (default) or `name`, one page at a time.
 `colleges` gives people per college for the current query, ignoring the college filter.
+
+Each word of `q` must start a word of the person's name or department, in any order: "Grace Ma" and "ma grace" find
+"Grace X. Ma", and "ma" doesn't find "Thomas". With `q` and the default sort, the exact name comes first, then the
+most similar name, then most records. When the backend's Postgres has `pg_trgm` (installed at startup when allowed)
+and no name matches every word, names similar to `q` match instead, so a typo like "Grace Mah" still finds her.
 
 ## `GET /api/researchers/:id/compatibility`
 

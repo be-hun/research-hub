@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import ai, assistant, compatibility, config, dashboards, explore, models, queries, researchers, summaries
 from app.colleges import COLLEGE_NAMES
-from app.db import Connection, Pool, connect, init_schema
+from app.db import Connection, Pool, connect, ensure_search_extensions, init_schema
 
 
 def create_app(database_url: str | None = None, *, connect_db: bool = True) -> FastAPI:
@@ -24,6 +24,7 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
     if connect_db:
         conn = connect(url)
         init_schema(conn)
+        ensure_search_extensions(conn)
         summaries.ensure_table(conn)
         app.state.db = conn  # for setup and tests; requests use the pool
     # Sync endpoints run on a thread pool. Each request borrows one connection and returns it when done, so a
@@ -179,9 +180,15 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
         return result
 
     @app.post("/api/assistant")
-    def assistant_reply(conn: DB, body: models.AssistantRequest) -> models.AssistantReply:
+    def assistant_reply(body: models.AssistantRequest) -> models.AssistantReply:
         try:
-            return assistant.answer(conn, body.messages, body.profile)
+            with app.state.pool.connection() as conn:
+                prepared = assistant.prepare(conn, body.messages, body.profile)
+            if not prepared.records:
+                return assistant._none(assistant.NOTHING_FOUND, assistant.TRY_INSTEAD)
+            result = ai.grounded_answer(assistant.SYSTEM, prepared.api_messages)
+            with app.state.pool.connection() as conn:
+                return assistant.finish(conn, prepared, result, body.profile)
         except ai.AIUnavailable as exc:
             raise HTTPException(503, str(exc)) from exc
 
