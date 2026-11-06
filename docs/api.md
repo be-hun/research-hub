@@ -293,14 +293,28 @@ Grants.gov page and carries `updatedAt`, the time it was fetched.
   `category`, `universities=true` (calls listing applicant type 06 or 20, higher education) and `closes_within`
   (days). `sort` is `deadline` (default: soonest first, calls without a date last), `relevance` or `newest`.
   `facets` count the current query and other filters, ignoring each facet's own filter.
+  - `q` is read by Postgres `websearch_to_tsquery` ("quoted phrases", `-excluded` words). A `q` equal to a call
+    number (`RFA-CA-27-019`) or an agency label (`NSF`), ignoring case, also matches; under `relevance` an exact
+    call number ranks first, then `ts_rank` (title above description above number, agency and categories).
+    `relevance` without `q` is deadline order. `newest` is `postedDate` descending, ties by title.
+  - A posted call whose `closeDate` is before today is treated as `closed` everywhere: it is hidden unless
+    `status=closed` is asked for, counted under `closed` in `facets.status`, and returned with `status: "closed"`.
+    `daysLeft` and every comparison with today use the database's `current_date`.
+  - `category` keeps calls listing any of the given categories; `closes_within=N` keeps calls whose `closeDate` is
+    today through N days from today (calls without a date drop out).
+  - Status facet labels: `posted` "Open", `forecasted` "Forecasted", `closed` "Closed". Agency and category facets
+    are labelled with their value.
 - `GET /api/opportunities/:id` returns `OpportunityDetail`: the synopsis and eligibility text verbatim, applicant
   types, award range, contact, and `pastAwards`, Temple awards under the same assistance listing (ALN) numbers.
-  404 if unknown.
+  `description` is the stored synopsis split at blank lines. `pastAwardCount` and `pastAwards` count parent awards
+  only (an NIH center-grant component is part of its parent), newest fiscal year first, at most 10. 404 if unknown.
 - `GET /api/opportunities/:id/researchers` returns `OpportunityResearchers`: Temple researchers whose stored records
   overlap the call, scored deterministically (no model call) and shown with `notice`. Overlap is a discovery aid,
   not a recommendation or an eligibility check.
 - `GET /api/researchers/:id/opportunities` returns open calls that overlap a researcher's records, at most 8.
-- `GET /api/projects/:id/opportunities` returns open calls sharing an assistance listing with that award.
+- `GET /api/projects/:id/opportunities` returns open calls sharing an assistance listing with that award: posted
+  or forecasted with no passed deadline, soonest first, at most 6. A center-grant component also uses its parent
+  award's listings. 404 if the project is unknown.
 
 `universitiesEligible` comes from Grants.gov's applicant-type codes. The site never decides eligibility; the
 agency's own `eligibilityText` is shown as written.
