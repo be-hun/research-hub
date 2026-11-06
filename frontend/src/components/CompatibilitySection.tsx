@@ -27,7 +27,10 @@ export default function CompatibilitySection({ compatibility }: { compatibility:
                 <span className="text-tiny font-semibold uppercase tracking-wider text-ink-3">Overlap with their work</span>
                 <BandPill band={match.band} />
               </div>
-              <AwardRow project={match.project} context={plainReasons(match.reasons, false)} />
+              {/* AwardRow is an <li>, so it needs its own list inside this card. */}
+              <ul>
+                <AwardRow project={match.project} context={plainReasons(match.reasons, false)} />
+              </ul>
             </li>
           ))}
         </ul>

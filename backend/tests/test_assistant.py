@@ -224,3 +224,28 @@ def test_model_can_choose_team_mode_but_one_person_is_a_people_answer(team_clien
                 "people": [{"name": "Ana Lopez", "focus": "Clinical risk models", "records": [1]}]})
     body = ask(team_client, "Which machine learning experts are there?").json()
     assert body["mode"] == "people" and [p["name"] for p in body["people"]] == ["Ana Lopez"]
+
+
+def test_follow_up_that_points_back_keeps_the_earlier_topic(fake_model):
+    from ingest import clinical_trials
+    from tests.test_new_sources import trial
+
+    app = create_app()
+    load(app.state.db, merge([
+        normalize([record()]),
+        clinical_trials.normalize([trial(
+            identificationModule={"nctId": "NCT07000001", "briefTitle": "Memory care in Down syndrome"},
+            conditionsModule={"conditions": ["Down Syndrome"], "keywords": []},
+        ), trial()], 2022),
+    ]))
+    calls = fake_model({"summary": "One recruiting trial [1].", "records": [{"record": 1, "takeaway": "x"}]})
+    body = TestClient(app).post("/api/assistant", json={"messages": [
+        {"role": "user", "text": "Who studies Down syndrome?"},
+        {"role": "assistant", "text": "Domenico Pratico leads this work [1]."},
+        {"role": "user", "text": "Which of them have recruiting trials?"},
+    ]}).json()
+    # Searched with the earlier question's topic and this one's filters, not with "of them have".
+    assert body["searchedFor"] == "Recruiting clinical trials · down syndrome"
+    assert [r["project"]["id"] for r in body["records"]] == ["ct-NCT07000001"]
+    sent = calls[0][-1]["content"]
+    assert "Memory care in Down syndrome" in sent and "Ketamine" not in sent and "Proteostasis" not in sent

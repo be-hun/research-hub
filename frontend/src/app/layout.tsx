@@ -25,6 +25,7 @@ const ICONS = [
   "bookmark",
   "bookmark_added",
   "check",
+  "chevron_left",
   "chevron_right",
   "close",
   "content_copy",
