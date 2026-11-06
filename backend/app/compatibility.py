@@ -413,13 +413,16 @@ def match_projects(conn: Connection, profile: models.ProfileInput, ids: list[str
 
 
 def _collaborators(conn: Connection, profile: models.ProfileInput) -> list[models.CollaboratorMatch]:
-    ids = _active_ids(conn, ("award", "trial"))
+    # People on an active grant or trial, or on a recent paper (publications are imported from 2024 on): someone who
+    # publishes on a topic is as worth contacting as someone funded for it, and Ask can name either.
+    ids = _active_ids(conn, ("award", "trial")) + [r["id"] for r in conn.execute(
+        f"SELECT p.id FROM projects p WHERE p.kind = 'publication' AND {PARENT_ONLY} ORDER BY p.id"
+    )]
     if not ids:
         return []
     data = corpus(conn)
     p = _Profile(profile, data)
-    # People on an active grant or trial, scored on all of their records: the same score match_researcher gives
-    # them on their own page.
+    # Each person is scored on all of their records: the same score match_researcher gives them on their own page.
     team: dict[str, list[str]] = defaultdict(list)
     for row in conn.execute(f"""
         SELECT t.project_id, t.researcher_id FROM project_team t

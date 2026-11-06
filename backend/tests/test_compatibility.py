@@ -151,3 +151,14 @@ def test_a_person_gets_the_same_score_in_the_people_list_and_on_their_page():
         own = client.post(f"/api/match/researcher/{person['researcherId']}", json=profile).json()
         assert own["score"] == person["score"]
         assert not ("Linked to the same college" in person["reasons"] and "Expands beyond your college" in person["reasons"])
+
+
+def test_authors_of_recent_papers_are_people_to_connect_with():
+    from ingest import openalex
+    from tests.test_new_sources import OPENALEX_FUNDERS, work
+
+    app = create_app()
+    papers = openalex.normalize({"works": [work()], "funders": OPENALEX_FUNDERS})
+    load(app.state.db, merge([normalize([record()]), papers]))
+    body = TestClient(app).post("/api/for-you", json={"terms": ["cancer cell metabolism", "mice"]}).json()
+    assert "Ana Lopez" in [person["name"] for person in body["collaborators"]]
