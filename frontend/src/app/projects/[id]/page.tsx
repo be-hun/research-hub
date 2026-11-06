@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import AISummary from "@/components/AISummary";
 import AwardRow from "@/components/AwardRow";
 import YearBars from "@/components/charts/YearBars";
 import SaveButton from "@/components/SaveButton";
@@ -106,6 +107,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
 
       <div className="grid lg:grid-cols-[1.6fr_1fr] gap-12">
         <div className="space-y-10">
+          <AISummary kind="project" id={project.id} about={`this ${noun}`} />
           <Section title={`About this ${noun}`}>
             <div className="space-y-4 text-body text-ink-2 max-w-[70ch]">
               <p className="text-lead text-ink">{project.summary}</p>

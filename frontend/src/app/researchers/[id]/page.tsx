@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import AISummary from "@/components/AISummary";
 import CountBars from "@/components/charts/CountBars";
 import CompatibilitySection from "@/components/CompatibilitySection";
 import { ConfidenceChip } from "@/components/ConfidenceNotice";
@@ -73,6 +74,8 @@ export default async function ResearcherPage({
       </div>
 
       <ResearcherHeader profile={r} />
+
+      <AISummary kind="researcher" id={r.id} about={`${r.name}’s records`} />
 
       {youMatch && <YouAndResearcher name={r.name} match={youMatch} />}
 

@@ -68,6 +68,35 @@ DECLINED = {"answerable": False, "mode": "research", "summary": "I can't help wi
             "records": [], "people": [], "follow_ups": []}
 
 
+SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {
+            "type": "string",
+            "description": "Two or three plain sentences, at most 70 words, citing record numbers like [2]. Empty if the "
+                           "records don't support a summary.",
+        },
+        "points": {
+            "type": "array",
+            "description": "Up to three key points, each at most 20 words, each backed by the records it cites.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "records": {"type": "array", "items": {"type": "integer"}},
+                },
+                "required": ["text", "records"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["summary", "points"],
+}
+
+SUMMARY_DECLINED = {"summary": "", "points": []}
+SUMMARY_EFFORT = os.environ.get("AI_SUMMARY_EFFORT", "low")  # short, extractive summaries: low effort is enough
+
+
 class AIUnavailable(Exception):
     """The model could not be reached or is not configured. The message is safe to show users."""
 
@@ -77,10 +106,20 @@ def grounded_answer(system: str, messages: list[dict]) -> dict:
 
     messages: [{"role": "user" | "assistant", "content": str}, ...], ending with the user.
     """
+    return _call(system, messages, ANSWER_SCHEMA, _validate_response, DECLINED, EFFORT)
+
+
+def grounded_summary(system: str, content: str) -> dict:
+    """Return a dict shaped like SUMMARY_SCHEMA (summary "" if the model declines). One user message, no history."""
+    return _call(system, [{"role": "user", "content": content}], SUMMARY_SCHEMA, _validate_summary,
+                 SUMMARY_DECLINED, SUMMARY_EFFORT)
+
+
+def _call(system: str, messages: list[dict], schema: dict, validate, declined: dict, effort: str) -> dict:
     if PROVIDER == "gemini":
-        return _gemini(system, messages)
+        return _gemini(system, messages, schema, validate, declined)
     if PROVIDER == "anthropic":
-        return _anthropic(system, messages)
+        return _anthropic(system, messages, schema, validate, declined, effort)
     raise AIUnavailable(f"Unknown AI_PROVIDER '{PROVIDER}'. Use 'gemini' or 'anthropic'.")
 
 
@@ -94,6 +133,12 @@ def _validate_response(value: object) -> dict:
         raise AIUnavailable("The assistant returned an invalid answer mode. Try again.")
     if not all(isinstance(value[key], list) for key in ("records", "people", "follow_ups")):
         raise AIUnavailable("The assistant returned an invalid answer. Try again.")
+    return value
+
+
+def _validate_summary(value: object) -> dict:
+    if not isinstance(value, dict) or not isinstance(value.get("summary"), str) or not isinstance(value.get("points"), list):
+        raise AIUnavailable("The summary came back in an unexpected format. Try again.")
     return value
 
 
@@ -112,7 +157,7 @@ def _network_errors() -> tuple[type[BaseException], ...]:
     return tuple(errors)
 
 
-def _gemini(system: str, messages: list[dict]) -> dict:
+def _gemini(system: str, messages: list[dict], schema: dict, validate, declined: dict) -> dict:
     from google import genai
     from google.genai import errors as genai_errors
     from google.genai import types
@@ -135,7 +180,7 @@ def _gemini(system: str, messages: list[dict]) -> dict:
             config=types.GenerateContentConfig(
                 system_instruction=system,
                 response_mime_type="application/json",
-                response_json_schema=ANSWER_SCHEMA,
+                response_json_schema=schema,
                 max_output_tokens=8192,
             ),
         )
@@ -153,7 +198,7 @@ def _gemini(system: str, messages: list[dict]) -> dict:
         raise AIUnavailable("The assistant service could not be reached.") from exc
 
     if response.prompt_feedback and response.prompt_feedback.block_reason:
-        return DECLINED
+        return declined
     candidate = response.candidates[0] if response.candidates else None
     if candidate is None:
         raise AIUnavailable("The assistant returned an empty answer.")
@@ -161,11 +206,11 @@ def _gemini(system: str, messages: list[dict]) -> dict:
     if reason == types.FinishReason.MAX_TOKENS:
         raise AIUnavailable("The assistant's answer was cut off. Try a narrower question.")
     if reason not in (None, types.FinishReason.STOP, types.FinishReason.FINISH_REASON_UNSPECIFIED):
-        return DECLINED  # safety, recitation, blocklist and similar stops
+        return declined  # safety, recitation, blocklist and similar stops
     if not response.text:
         raise AIUnavailable("The assistant returned an empty answer.")
     try:
-        return _validate_response(json.loads(response.text))
+        return validate(json.loads(response.text))
     except json.JSONDecodeError as exc:
         raise AIUnavailable("The assistant returned an answer in an unexpected format. Try again.") from exc
 
@@ -175,7 +220,7 @@ def _gemini(system: str, messages: list[dict]) -> dict:
 _anthropic_client = None
 
 
-def _anthropic(system: str, messages: list[dict]) -> dict:
+def _anthropic(system: str, messages: list[dict], schema: dict, validate, declined: dict, effort: str) -> dict:
     import anthropic
 
     global _anthropic_client
@@ -189,8 +234,8 @@ def _anthropic(system: str, messages: list[dict]) -> dict:
             messages=messages,
             timeout=TIMEOUT_SECONDS,
             output_config={
-                "effort": EFFORT,
-                "format": {"type": "json_schema", "schema": {**ANSWER_SCHEMA, "additionalProperties": False}},
+                "effort": effort,
+                "format": {"type": "json_schema", "schema": {**schema, "additionalProperties": False}},
             },
             # On a safety-classifier decline, retry server-side on Anthropic's recommended fallback model.
             betas=["server-side-fallback-2026-07-01"],
@@ -213,10 +258,13 @@ def _anthropic(system: str, messages: list[dict]) -> dict:
         raise AIUnavailable("The assistant is not configured: set ANTHROPIC_API_KEY in backend/.env.") from exc
 
     if response.stop_reason == "refusal":
-        return DECLINED
+        return declined
     if response.stop_reason == "max_tokens":
         raise AIUnavailable("The assistant's answer was cut off. Try a narrower question.")
     text = next((b.text for b in response.content if b.type == "text"), None)
     if text is None:
         raise AIUnavailable("The assistant returned an empty answer.")
-    return _validate_response(json.loads(text))
+    try:
+        return validate(json.loads(text))
+    except json.JSONDecodeError as exc:
+        raise AIUnavailable("The assistant returned an answer in an unexpected format. Try again.") from exc

@@ -81,7 +81,13 @@ def _retrieve(
             break
     if not hits:
         return []
-    ids = [h.id for h in hits]
+    return record_rows(conn, [h.id for h in hits])
+
+
+def record_rows(conn: Connection, ids: list[str]) -> list[Row]:
+    """Records with their colleges, lead team and funders, in the given order, as `format_record` reads them."""
+    if not ids:
+        return []
     rows = conn.execute(f"""
         SELECT p.*, string_agg(DISTINCT c.college, ',') AS colleges,
                (SELECT string_agg(name || ' (' || role || ')', '; ' ORDER BY position) FROM
@@ -96,7 +102,7 @@ def _retrieve(
     return [by_id[i] for i in ids if i in by_id]
 
 
-def _format_record(n: int, r: Row) -> str:
+def format_record(n: int, r: Row) -> str:
     abstract = r["abstract"].replace("\n\n", " ") or r["summary"]
     kind = r["kind"]
     if kind == "trial":
@@ -194,7 +200,7 @@ def answer(
     if not records:
         return _none(NOTHING_FOUND, TRY_INSTEAD)
 
-    context = "\n\n".join(_format_record(n, r) for n, r in enumerate(records, start=1))
+    context = "\n\n".join(format_record(n, r) for n, r in enumerate(records, start=1))
     history = [{"role": m.role, "content": m.text} for m in messages[:-1]]
     question = messages[-1].text
     profile_context = ""

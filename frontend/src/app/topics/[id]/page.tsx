@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import AISummary from "@/components/AISummary";
 import AwardRow from "@/components/AwardRow";
 import BarList from "@/components/charts/BarList";
 import YearBars from "@/components/charts/YearBars";
@@ -60,6 +61,8 @@ export default async function TopicPage({ params }: { params: { id: string } }) 
           </div>
         )}
       </header>
+
+      <AISummary kind="topic" id={t.topic.id} about={`research on ${t.topic.name}`} />
 
       <div className="grid lg:grid-cols-2 gap-12">
         <Section title="Colleges involved" subtitle="Grant funding since FY2022, plus trials and papers">

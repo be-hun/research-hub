@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import ai, assistant, compatibility, config, dashboards, explore, models, queries, researchers
+from app import ai, assistant, compatibility, config, dashboards, explore, models, queries, researchers, summaries
 from app.colleges import COLLEGE_NAMES
 from app.db import Connection, Pool, connect, init_schema
 
@@ -24,6 +24,7 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
     if connect_db:
         conn = connect(url)
         init_schema(conn)
+        summaries.ensure_table(conn)
         app.state.db = conn  # for setup and tests; requests use the pool
     # Sync endpoints run on a thread pool. Each request borrows one connection and returns it when done, so a
     # process never holds more than DB_POOL_SIZE connections to Supabase however many threads are busy.
@@ -169,6 +170,13 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
         if college_id not in COLLEGE_NAMES:
             raise HTTPException(404, "College not found")
         return queries.search(conn, "", page, [college_id], kinds=kind)
+
+    @app.get("/api/summaries/{kind}/{ref_id}")
+    def summary(conn: DB, kind: models.SummaryKind, ref_id: str) -> models.AISummary:
+        result = summaries.summarize(conn, kind, ref_id)
+        if result is None:
+            raise HTTPException(404, "Nothing to summarize with that id")
+        return result
 
     @app.post("/api/assistant")
     def assistant_reply(conn: DB, body: models.AssistantRequest) -> models.AssistantReply:

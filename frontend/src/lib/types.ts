@@ -489,3 +489,33 @@ export interface PeopleResponse {
   results: PersonSummary[];
   colleges: FacetValue[]; // people per college for the current query, ignoring the college filter
 }
+
+// ---------- AI summaries ----------
+
+export type SummaryKind = "project" | "researcher" | "topic" | "college";
+
+export interface SummaryCitation {
+  n: number; // the [n] used in the summary text
+  id: string; // project id
+  title: string;
+  kind: Kind;
+}
+
+export interface SummaryPoint {
+  text: string;
+  citations: number[]; // [n] numbers, each one in `citations`
+}
+
+/** A model-written summary of stored records, for display next to them. Never a source of facts on its own. */
+export interface AISummary {
+  kind: SummaryKind;
+  id: string;
+  available: boolean; // false when no summary could be written; `message` says why
+  summary: string; // plain text with [n] citations; "" when unavailable
+  points: SummaryPoint[];
+  citations: SummaryCitation[]; // every record the model was given, numbered as in the text
+  recordCount: number;
+  message: string | null;
+  generatedAt: string | null; // ISO time the summary was written (it is cached until the data changes)
+  model: string | null;
+}
