@@ -1,3 +1,4 @@
+import threading
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -179,10 +180,19 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
     return app
 
 
+def _warm(app: FastAPI) -> None:
+    """Build the matching corpus in the background so the first visitor after a deploy doesn't wait for it."""
+    try:
+        with app.state.pool.connection() as conn:
+            compatibility.corpus(conn)
+    except Exception:  # noqa: BLE001  the first request builds it instead
+        pass
+
 
 def __getattr__(name: str):
     """`uvicorn app.main:app` builds the app on first access, so importing create_app never opens a connection."""
     if name == "app":
-        globals()["app"] = create_app()
-        return globals()["app"]
+        globals()["app"] = created = create_app()
+        threading.Thread(target=_warm, args=(created,), daemon=True).start()
+        return created
     raise AttributeError(name)

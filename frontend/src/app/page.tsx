@@ -29,7 +29,7 @@ export default async function HomePage() {
               subtitle="New and active research that shares your interests. Synthetic demo account."
               action={{ href: "/account#for-you", label: "See all and edit interests" }}
             >
-              <ForYou data={forYou} limit={3} terms={profile?.terms} college={profile?.college} />
+              <ForYou data={forYou} limit={3} />
             </Section>
           </div>
         </section>

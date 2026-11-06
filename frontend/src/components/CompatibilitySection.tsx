@@ -22,7 +22,7 @@ export default function CompatibilitySection({ compatibility }: { compatibility:
                 <span className="text-tiny font-semibold uppercase tracking-wider text-ink-3">Compatibility</span>
                 <span className="text-small font-semibold text-cherry num">{match.score}/100</span>
               </div>
-              <AwardRow project={match.project} context={plainReasons(match.reasons, [], false)} />
+              <AwardRow project={match.project} context={plainReasons(match.reasons, false)} />
             </li>
           ))}
         </ul>
