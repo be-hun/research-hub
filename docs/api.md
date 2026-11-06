@@ -264,6 +264,33 @@ Body: `AssistantRequest`, i.e. `{ messages: { role: "user" | "assistant", text: 
 The assistant has no rate limit. A public launch should add rate limiting and budget accounting
 (ideally at the reverse proxy or other shared infrastructure) so the API key can't be run up.
 
+## Saved conversations
+
+Ask keeps a history like a normal chatbot: a list of past conversations that can be reopened, renamed and deleted.
+
+- **Owner.** Every conversation endpoint requires an `X-Client-Id` header of 8–64 characters from `[A-Za-z0-9-]`;
+  a missing or malformed one is `400`. The frontend sends `demo-maya` when signed in to the demo, otherwise a random
+  UUID it keeps in `localStorage`. This is demo-grade identity, not authentication: anyone who knows an id can read
+  its conversations. Every query filters by it, and another owner's conversation is `404`.
+- **Saving happens in `POST /api/assistant`.** With an `X-Client-Id` header, each answer (including `mode: "none"`
+  "nothing found" answers, but not `4xx`/`5xx` errors) is saved as two messages: the request's last user message and
+  the reply. Without `conversationId` a new conversation is started, titled with that question cut to 80 characters
+  at a word boundary; with one, the turn is appended (another owner's id is `404`, checked before the model is
+  called) and `updatedAt` moves. The reply's `conversationId` is the conversation it went into. Without the header
+  nothing is saved and `conversationId` is `null`; a malformed header is `400`. A failed save is logged and the answer
+  is still returned, with `conversationId: null`.
+- The assistant message's `text` is the reply's `summary`, and `reply` is the full `AssistantReply` as returned, so a
+  reopened conversation shows the same cards. A stored reply that no longer fits the current contract comes back as
+  `reply: null` (the text still shows).
+- `GET /api/conversations` returns `ConversationList`: the owner's newest 50 by `updatedAt`, each with its
+  `messageCount`.
+- `GET /api/conversations/:id` returns `Conversation` with its `messages` in order.
+- `PATCH /api/conversations/:id` with `ConversationRename { title }` (trimmed, 1–120 characters, else `422`) returns
+  the `ConversationSummary`. Renaming doesn't change `updatedAt`.
+- `DELETE /api/conversations/:id` returns `204` and deletes its messages too.
+- The tables (`backend/app/conversations.sql`) are created at startup and are not part of `schema.sql`, so a schema
+  rebuild or an import doesn't erase them.
+
 ## `POST /api/intro-draft`
 
 Body: `IntroDraftRequest`, i.e. `{ researcherId: string, profile: ProfileInput, senderName?: string }`. Returns
