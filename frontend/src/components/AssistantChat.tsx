@@ -98,11 +98,20 @@ function PersonCard({ person }: { person: AssistantPerson }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <Link
-            href={`/search?q=${encodeURIComponent(person.name)}`}
+            href={
+              person.researcherId
+                ? `/researchers/${person.researcherId}`
+                : `/search?q=${encodeURIComponent(person.name)}`
+            }
             className="font-semibold hover:text-cherry hover:underline underline-offset-2"
           >
             {person.name}
           </Link>
+          {person.inYourMatches && (
+            <span className="inline-flex mt-1 px-2 py-0.5 rounded-full bg-cherry-tint text-cherry-dark text-tiny font-medium">
+              In your matches
+            </span>
+          )}
           <div className="flex flex-wrap items-center gap-x-2 mt-0.5">
             <CollegeTag id={person.college} />
             {person.department && <span className="text-tiny text-ink-3 truncate">{person.department}</span>}
@@ -136,6 +145,7 @@ function Answer({ reply, onAsk }: { reply: AssistantReply; onAsk: (q: string) =>
   return (
     <div className="space-y-4">
       <Summary text={reply.summary} />
+      {reply.searchedFor && <p className="text-tiny text-ink-3">Searched: {reply.searchedFor}</p>}
       {n > 0 && (
         <section>
           <h3 className="flex items-center gap-1.5 text-tiny font-semibold uppercase tracking-wider text-ink-3 mb-2">

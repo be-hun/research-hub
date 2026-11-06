@@ -77,7 +77,7 @@ export default function AwardRow({
         : "Sponsor not listed"
       : [project.pi.name.trim() || "Principal investigator not listed", project.pi.department].filter(Boolean).join(" · ");
   const stale = project.kind === "trial" && isStaleTrialStatus(project.statusLabel, project.endYear);
-  const showInterest = interestBand ? SHOWN_BANDS.includes(interestBand) : !!interestMatch;
+  const showInterest = !!interestBand && SHOWN_BANDS.includes(interestBand);
   return (
     <li className="py-4 border-b border-line last:border-b-0">
       <div className={`flex flex-col gap-x-6 gap-y-2 ${stacked ? "" : "sm:flex-row sm:items-start"}`}>
