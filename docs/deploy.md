@@ -98,6 +98,17 @@ services run as the same user as `research-hub-api.service`; if that isn't root,
 
 After a deploy that changes the units: `systemctl daemon-reload`.
 
+## Saved conversations
+
+Saved Ask conversations live in two tables, `conversations` and `conversation_messages`, defined in
+`backend/app/conversations.sql`. The backend creates them automatically at startup if they're missing (on Supabase
+too), so a deploy needs no manual step. They're kept out of `schema.sql`, so imports (`ingest.run`) and schema
+rebuilds after a `SCHEMA_VERSION` bump never touch them. To remove them, and every saved conversation, run:
+
+```sql
+DROP TABLE IF EXISTS conversation_messages, conversations;
+```
+
 ## Roll back
 
 Check out the previous commit on `main`, repeat the deploy steps, and restore the backup taken before the deploy if

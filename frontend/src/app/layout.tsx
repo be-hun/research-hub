@@ -18,6 +18,7 @@ export const metadata: Metadata = {
 // The font is cut down to these, about 7 KB instead of 1.1 MB; an icon missing here renders as its name, so add new
 // ones to this list. display=block keeps the names invisible while the font loads instead of flashing them as words.
 const ICONS = [
+  "add",
   "arrow_forward",
   "arrow_upward",
   "auto_awesome",
@@ -27,12 +28,18 @@ const ICONS = [
   "chevron_right",
   "close",
   "content_copy",
+  "data_object",
+  "delete",
   "description",
+  "download",
+  "edit",
   "group",
+  "history",
   "info",
   "mail",
   "menu",
   "person",
+  "print",
   "refresh",
   "science",
   "search",

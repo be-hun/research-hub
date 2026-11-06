@@ -275,6 +275,7 @@ export interface ChatMessage {
 export interface AssistantRequest {
   messages: ChatMessage[]; // only the last 8 are used, from a user turn
   profile?: ProfileInput | null;
+  conversationId?: string | null; // a saved conversation to append to (needs X-Client-Id)
 }
 
 export interface AssistantRecord {
@@ -315,6 +316,7 @@ export interface AssistantReply {
   people: AssistantPerson[];
   followUps: string[];
   searchedFor: string; // one plain line saying what was retrieved, e.g. "Recruiting clinical trials · heart failure"
+  conversationId?: string | null; // the saved conversation this turn went into; null without X-Client-Id or when saving failed
 }
 
 export interface FacetValue {
@@ -667,4 +669,37 @@ export interface ResearcherOpportunity {
   band: MatchBand;
   reasons: string[];
   projectIds: string[]; // the researcher's records behind the reasons
+}
+
+// ---------- saved conversations ----------
+
+export interface ConversationSummary {
+  id: string;
+  title: string; // the first question cut to 80 characters, or the name it was renamed to
+  createdAt: string; // ISO time
+  updatedAt: string; // ISO time of the last saved turn
+  messageCount: number; // user and assistant messages together
+}
+
+export interface ConversationList {
+  conversations: ConversationSummary[]; // newest updatedAt first, at most 50
+}
+
+export interface ConversationMessage {
+  role: "user" | "assistant";
+  text: string; // the question, or the answer's summary
+  reply: AssistantReply | null; // assistant turns: the full reply as it was returned; null for user turns
+  createdAt: string; // ISO time
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: ConversationMessage[]; // in the order they were said
+}
+
+export interface ConversationRename {
+  title: string; // trimmed before the length check
 }

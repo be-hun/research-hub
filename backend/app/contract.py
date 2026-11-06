@@ -130,9 +130,18 @@ def render_types() -> str:
     return "\n".join(header) + "\n\n" + body + "\n"
 
 
+def _headers(dependant) -> list[str]:
+    """Request headers a route reads, including through its dependencies (X-Client-Id comes from one)."""
+    names = [p.alias for p in dependant.header_params]
+    for sub in dependant.dependencies:
+        names += [n for n in _headers(sub) if n not in names]
+    return names
+
+
 def _params(route) -> str:
     parts = [f"`{p.alias}`{' (repeatable)' if get_origin(p.field_info.annotation) is list else ''}"
              for p in route.dependant.query_params]
+    parts += [f"header `{'-'.join(w.capitalize() for w in name.split('-'))}`" for name in _headers(route.dependant)]
     if route.body_field is not None:
         parts.append(f"body: `{ts_type(route.body_field.field_info.annotation)}`")
     return ", ".join(parts) or "—"
