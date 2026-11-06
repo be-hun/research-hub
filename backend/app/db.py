@@ -19,6 +19,7 @@ from psycopg.types.numeric import NumericLoader
 from app import config
 
 SCHEMA = Path(__file__).with_name("schema.sql")
+CONVERSATIONS = Path(__file__).with_name("conversations.sql")  # saved Ask chats; never dropped by init_schema
 SCHEMA_VERSION = 6  # bump when schema.sql changes; older databases are rebuilt by the next import
 _INIT_LOCK = 7_041_955  # advisory lock id, so two app workers starting at once don't both build the schema
 _TABLES = re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", SCHEMA.read_text())
@@ -177,6 +178,13 @@ def init_schema(conn: Connection) -> None:
         conn.execute(SCHEMA.read_text())
         conn.execute("DELETE FROM schema_meta")
         conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
+
+
+def ensure_conversation_tables(conn: Connection) -> None:
+    """Create the saved-conversation tables if missing. Idempotent, and outside schema.sql so rebuilds keep them."""
+    with conn:
+        conn.execute("SELECT pg_advisory_xact_lock(?)", (_INIT_LOCK,))
+        conn.execute(CONVERSATIONS.read_text())
 
 
 def ensure_search_extensions(conn: Connection) -> bool:

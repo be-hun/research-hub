@@ -299,6 +299,7 @@ class ChatMessage(BaseModel):
 class AssistantRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=40)  # only the last 8 are used, from a user turn
     profile: ProfileInput | None = None
+    conversationId: str | None = Field(default=None, max_length=64)  # a saved conversation to append to (needs X-Client-Id)
 
     @model_validator(mode="after")
     def ends_with_user(self):
@@ -345,6 +346,7 @@ class AssistantReply(BaseModel):
     people: list[AssistantPerson]
     followUps: list[str]
     searchedFor: str = ""  # one plain line saying what was retrieved, e.g. "Recruiting clinical trials · heart failure"
+    conversationId: str | None = None  # the saved conversation this turn went into; null without X-Client-Id or when saving failed
 
 
 class FacetValue(BaseModel):
@@ -708,3 +710,41 @@ class ResearcherOpportunity(BaseModel):
     band: MatchBand
     reasons: list[str]
     projectIds: list[str]  # the researcher's records behind the reasons
+
+
+# ---------- saved conversations ----------
+
+class ConversationSummary(BaseModel):
+    id: str
+    title: str  # the first question cut to 80 characters, or the name it was renamed to
+    createdAt: str  # ISO time
+    updatedAt: str  # ISO time of the last saved turn
+    messageCount: int  # user and assistant messages together
+
+
+class ConversationList(BaseModel):
+    conversations: list[ConversationSummary]  # newest updatedAt first, at most 50
+
+
+class ConversationMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str  # the question, or the answer's summary
+    reply: AssistantReply | None  # assistant turns: the full reply as it was returned; null for user turns
+    createdAt: str  # ISO time
+
+
+class Conversation(BaseModel):
+    id: str
+    title: str
+    createdAt: str
+    updatedAt: str
+    messages: list[ConversationMessage]  # in the order they were said
+
+
+class ConversationRename(BaseModel):
+    title: str = Field(min_length=1, max_length=120)  # trimmed before the length check
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def trimmed(cls, value):
+        return value.strip() if isinstance(value, str) else value
