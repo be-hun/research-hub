@@ -16,6 +16,7 @@ import type {
 } from "@/lib/types";
 import AnswerActions from "./AnswerActions";
 import Icon from "./Icon";
+import IntroDraftButton from "./IntroDraftButton";
 import { CollegeTag, KindTag, StatusChip } from "./Tags";
 
 interface Message {
@@ -87,7 +88,7 @@ function RecordCard({ record }: { record: AssistantRecord }) {
   );
 }
 
-function PersonCard({ person }: { person: AssistantPerson }) {
+function PersonCard({ person, profile }: { person: AssistantPerson; profile: ProfileInput | null }) {
   const t = person.totals;
   const totals = [
     t.grants && count(t.grants, "grant"),
@@ -136,6 +137,11 @@ function PersonCard({ person }: { person: AssistantPerson }) {
           </li>
         ))}
       </ul>
+      {profile && person.researcherId && (
+        <div className="mt-3">
+          <IntroDraftButton researcherId={person.researcherId} name={person.name} profile={profile} />
+        </div>
+      )}
     </li>
   );
 }
@@ -145,11 +151,13 @@ function Answer({
   question,
   signedIn,
   onAsk,
+  profile,
 }: {
   reply: AssistantReply;
   question: string;
   signedIn: boolean;
   onAsk: (q: string) => void;
+  profile: ProfileInput | null;
 }) {
   const isPeople = reply.mode === "people";
   const n = isPeople ? reply.people.length : reply.records.length;
@@ -165,7 +173,7 @@ function Answer({
           </h3>
           <ul className="space-y-2">
             {isPeople
-              ? reply.people.map((p) => <PersonCard key={p.name} person={p} />)
+              ? reply.people.map((p) => <PersonCard key={p.name} person={p} profile={profile} />)
               : reply.records.map((r) => <RecordCard key={r.n} record={r} />)}
           </ul>
         </section>
@@ -337,6 +345,7 @@ export default function AssistantChat({
                     question={messages[i - 1]?.text ?? ""}
                     signedIn={!!profile}
                     onAsk={send}
+                    profile={profile}
                   />
                 ) : (
                   <div className="bg-canvas border border-line text-ink-2 rounded-xl p-4">
