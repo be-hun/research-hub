@@ -164,7 +164,7 @@ def _retrieve_question(conn: Connection, question: str, profile: models.ProfileI
         cited = [pid for person in collaborators for pid in person.citations[:2]]
         if cited:
             extra = queries.projects_by_ids(conn, list(dict.fromkeys(cited)))
-            records = record_rows(conn, list(dict.fromkeys([p.id for p in extra] + [p.id for p in records]))[:MAX_RECORDS])
+            records = record_rows(conn, list(dict.fromkeys([p.id for p in extra] + [r["id"] for r in records]))[:MAX_RECORDS])
     elif profile and re.search(r"\b(?:my|me|i|our|we)\b", lower):
         picks = compatibility.for_you(conn, profile)
         picked_ids = [p.project.id for p in picks.grants + picks.trials]
