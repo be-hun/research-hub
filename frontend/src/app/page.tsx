@@ -1,14 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
-import AwardRow from "@/components/AwardRow";
-import BarList from "@/components/charts/BarList";
 import SearchBar from "@/components/SearchBar";
-import Section from "@/components/Section";
 import StatTiles from "@/components/StatTiles";
-import TopicTile from "@/components/TopicTile";
 import { getOverview } from "@/lib/api";
-import { COLLEGES } from "@/lib/colleges";
-import { count, money, shortDate } from "@/lib/format";
+import { shortDate } from "@/lib/format";
 
 const EXAMPLES = ["machine learning", "battery energy storage", "opioid addiction", "Alzheimer's disease"];
 
@@ -63,50 +58,36 @@ export default async function HomePage() {
           </p>
         </div>
 
-        <div className="grid lg:grid-cols-[1fr_1.4fr] gap-12">
-          <Section
-            title="Where the funding goes"
-            subtitle="Grant money obligated since FY2022, by college"
-            action={{ href: "/explore", label: "Explore all data" }}
-          >
-            <BarList
-              caption="Funding by college since fiscal year 2022"
-              rows={o.byCollege.filter((c) => c.funding > 0).map((c) => ({
-                key: c.college,
-                label: COLLEGES[c.college].short,
-                href: `/search?college=${c.college}`,
-                color: COLLEGES[c.college].color,
-                value: c.funding,
-                valueLabel: money(c.funding),
-                detail: [count(c.awards, "grant"), count(c.trials, "trial"), count(c.publications, "paper")].join(" · "),
-              }))}
-            />
-          </Section>
-
-          <Section title="Browse by topic" action={{ href: "/topics", label: "All topics" }}>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              {o.topics.slice(0, 6).map((t) => (
-                <TopicTile key={t.id} topic={t} />
-              ))}
-            </div>
-          </Section>
-        </div>
-
-        <div className="grid lg:grid-cols-2 gap-12">
-          <Section title="Recently started grants" action={{ href: "/search?kind=award&status=active", label: "All active grants" }}>
-            <ul className="bg-surface border border-line rounded-xl px-5">
-              {o.recent.slice(0, 4).map((p) => (
-                <AwardRow key={p.id} project={p} />
-              ))}
-            </ul>
-          </Section>
-          <Section title="Clinical trials recruiting now" action={{ href: "/search?kind=trial&status=active", label: `All ${o.totals.recruiting}` }}>
-            <ul className="bg-surface border border-line rounded-xl px-5">
-              {o.recruiting.slice(0, 4).map((p) => (
-                <AwardRow key={p.id} project={p} />
-              ))}
-            </ul>
-          </Section>
+        <div>
+          <h2 className="font-serif text-h2 text-ink mb-4">Start exploring</h2>
+          <div className="grid sm:grid-cols-3 gap-4">
+            {[
+              {
+                href: "/search",
+                title: "Search research",
+                text: "Find grants, trials, publications and topics.",
+              },
+              {
+                href: "/researchers",
+                title: "Find researchers",
+                text: "Explore people and their research records.",
+              },
+              {
+                href: "/ask",
+                title: "Ask a question",
+                text: "Search Temple research in plain language.",
+              },
+            ].map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="bg-surface border border-line rounded-xl p-5 hover:border-cherry hover:shadow-card transition-shadow"
+              >
+                <h3 className="font-semibold text-ink">{item.title}</h3>
+                <p className="text-small text-ink-2 mt-1">{item.text}</p>
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
     </main>
