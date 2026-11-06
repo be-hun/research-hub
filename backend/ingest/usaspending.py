@@ -12,7 +12,7 @@ from datetime import date
 
 from app.colleges import college_for_usaspending
 from ingest.http import client, request_json
-from ingest.text import first_sentences, title_case
+from ingest.text import aln, first_sentences, title_case
 
 SEARCH_URL = "https://api.usaspending.gov/api/v2/search/spending_by_award/"
 TRANSACTIONS_URL = "https://api.usaspending.gov/api/v2/transactions/"
@@ -189,7 +189,7 @@ def _title_and_text(description: str, programs: list[str] | None = None) -> tupl
 
 def normalize(awards: list[dict], from_year: int, today: date | None = None) -> dict:
     today = today or date.today()
-    projects, award_years, funders, colleges = [], [], [], []
+    projects, award_years, funders, colleges, listings = [], [], [], [], []
     for a in {x["generated_internal_id"]: x for x in awards}.values():
         if not _keep(a) or not a.get("End Date") or a["End Date"] < f"{from_year}-01-01":
             continue
@@ -242,8 +242,13 @@ def normalize(awards: list[dict], from_year: int, today: date | None = None) -> 
         award_years += [{"project_id": pid, "fiscal_year": fy, "appl_id": 0, "award_amount": round(amt), "admin_ic": abbr}
                         for fy, amt in sorted(by_year.items())]
         funders.append({"project_id": pid, "position": 0, "name": sub, "category": "federal"})
+        for listing in a.get("Assistance Listings") or []:
+            if number := aln(listing.get("cfda_number")):
+                listings.append({"project_id": pid, "aln": number,
+                                 "title": _title(listing.get("cfda_program_title") or "")})
         if college := college_for_usaspending(sub, raw_programs):
             colleges.append({"project_id": pid, "college": college})
 
     return {"projects": projects, "award_years": award_years, "project_funders": funders, "project_colleges": colleges,
-            "researchers": [], "project_team": [], "research_areas": [], "project_areas": []}
+            "researchers": [], "project_team": [], "research_areas": [], "project_areas": [],
+            "project_programs": listings}
