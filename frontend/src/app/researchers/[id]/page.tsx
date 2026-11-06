@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import AISummary from "@/components/AISummary";
 import CountBars from "@/components/charts/CountBars";
 import CompatibilitySection from "@/components/CompatibilitySection";
@@ -17,7 +18,7 @@ import { getResearcher, getResearcherCompatibility, matchResearcher } from "@/li
 import { COLLEGES, KIND_LABELS } from "@/lib/colleges";
 import { demoProfileInput } from "@/lib/demo";
 import { count, shortDate } from "@/lib/format";
-import type { Kind } from "@/lib/types";
+import type { Kind, ResearcherCompatibility, ResearcherMatch } from "@/lib/types";
 
 const EVIDENCE: Record<string, string> = {
   "source-person-id": "Source person ID",
@@ -27,11 +28,23 @@ const EVIDENCE: Record<string, string> = {
 const KINDS: Kind[] = ["award", "trial", "publication"];
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
-  const [r, compatibility] = await Promise.all([
-    getResearcher(params.id),
-    getResearcherCompatibility(params.id),
-  ]);
+  const r = await getResearcher(params.id);
   return { title: r?.name ?? "Researcher" };
+}
+
+// The match sections stream in after the profile: each awaits a request the page started, inside its own <Suspense>.
+async function YouSection({ name, match }: { name: string; match: Promise<ResearcherMatch | null> }) {
+  const m = await match;
+  return m ? <YouAndResearcher name={name} match={m} /> : null;
+}
+
+async function RelatedSection({ compatibility }: { compatibility: Promise<ResearcherCompatibility | null> }) {
+  const c = await compatibility;
+  return c ? <CompatibilitySection compatibility={c} /> : null;
+}
+
+function MatchSkeleton({ className }: { className: string }) {
+  return <div className={`animate-pulse rounded-xl border ${className}`} aria-busy="true" aria-label="Loading matches" />;
 }
 
 export default async function ResearcherPage({
@@ -42,11 +55,10 @@ export default async function ResearcherPage({
   searchParams: { kind?: string };
 }) {
   const demo = demoProfileInput();
-  const [r, compatibility, youMatch] = await Promise.all([
-    getResearcher(params.id),
-    getResearcherCompatibility(params.id),
-    demo ? matchResearcher(params.id, demo).catch(() => null) : null,
-  ]);
+  // All three requests start together; only the profile holds up the page.
+  const youMatch = demo ? matchResearcher(params.id, demo).catch(() => null) : null;
+  const compatibility = getResearcherCompatibility(params.id).catch(() => null);
+  const r = await getResearcher(params.id);
   if (!r) notFound();
   const kind = KINDS.find((k) => k === searchParams.kind);
   const shown = kind ? r.projects.filter((p) => p.project.kind === kind) : r.projects;
@@ -76,7 +88,11 @@ export default async function ResearcherPage({
 
       <AISummary kind="researcher" id={r.id} about={`${r.name}’s records`} />
 
-      {youMatch && <YouAndResearcher name={r.name} match={youMatch} />}
+      {youMatch && (
+        <Suspense fallback={<MatchSkeleton className="h-36 bg-cherry-tint/60 border-cherry/20" />}>
+          <YouSection name={r.name} match={youMatch} />
+        </Suspense>
+      )}
 
       <SectionTabs
         label="On this profile"
@@ -130,7 +146,9 @@ export default async function ResearcherPage({
               )}
             </div>
           </Section>
-          {compatibility && <CompatibilitySection compatibility={compatibility} />}
+          <Suspense fallback={<MatchSkeleton className="h-64 bg-surface border-line" />}>
+            <RelatedSection compatibility={compatibility} />
+          </Suspense>
 
           <Section id="records" title="Research records" subtitle="Grouped by start year, newest first. Each opens the record and its original source.">
             <div className="flex flex-wrap gap-2 mb-5" role="group" aria-label="Filter records by type">
