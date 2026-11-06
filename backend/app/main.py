@@ -1,13 +1,16 @@
+import logging
 import threading
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import ai, assistant, compatibility, config, dashboards, explore, intro, models, queries, researchers, summaries
+from app import (ai, assistant, compatibility, config, conversations, dashboards, explore, intro, models, queries,
+                 researchers, summaries)
 from app.colleges import COLLEGE_NAMES
 from app.db import Connection, Pool, connect, ensure_search_extensions, init_schema
 
+log = logging.getLogger(__name__)
 
 def create_app(database_url: str | None = None, *, connect_db: bool = True) -> FastAPI:
     """connect_db=False builds the routes without touching a database (the contract generator only reads them)."""
@@ -16,7 +19,7 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
         CORSMiddleware,
         allow_origins=config.CORS_ORIGINS,
         allow_origin_regex=config.CORS_ORIGIN_REGEX or None,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["*"],
     )
 
@@ -36,6 +39,19 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
             yield c
 
     DB = Annotated[Connection, Depends(db)]
+
+    def maybe_owner(x_client_id: Annotated[str | None, Header()] = None) -> str | None:
+        """The X-Client-Id header that owns saved conversations: 8-64 letters, digits or hyphens."""
+        if x_client_id is not None and not conversations.valid_client_id(x_client_id):
+            raise HTTPException(400, "X-Client-Id must be 8-64 letters, digits or hyphens")
+        return x_client_id
+
+    def owner(client_id: Annotated[str | None, Depends(maybe_owner)]) -> str:
+        if client_id is None:
+            raise HTTPException(400, "X-Client-Id header is required")
+        return client_id
+
+    Owner = Annotated[str, Depends(owner)]
 
     @app.get("/health")
     def health() -> dict:
@@ -186,8 +202,7 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
             raise HTTPException(404, "Nothing to summarize with that id")
         return result
 
-    @app.post("/api/assistant")
-    def assistant_reply(body: models.AssistantRequest) -> models.AssistantReply:
+    def answer(body: models.AssistantRequest) -> models.AssistantReply:
         try:
             with app.state.pool.connection() as conn:
                 prepared = assistant.prepare(conn, body.messages, body.profile)
@@ -198,6 +213,52 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
                 return assistant.finish(conn, prepared, result, body.profile)
         except ai.AIUnavailable as exc:
             raise HTTPException(503, str(exc)) from exc
+
+    @app.post("/api/assistant")
+    def assistant_reply(
+        body: models.AssistantRequest, client_id: Annotated[str | None, Depends(maybe_owner)]
+    ) -> models.AssistantReply:
+        if client_id and body.conversationId:
+            with app.state.pool.connection() as conn:
+                if not conversations.exists(conn, client_id, body.conversationId):
+                    raise HTTPException(404, "Conversation not found")
+        reply = answer(body)
+        if client_id:
+            # Saving must never cost the user the answer: on failure, log it and return the answer unsaved.
+            question = body.messages[-1].text
+            try:
+                with app.state.pool.connection() as conn:
+                    reply.conversationId = conversations.save_turn(conn, client_id, body.conversationId, question,
+                                                                   reply)
+            except Exception:  # noqa: BLE001
+                log.exception("could not save the Ask conversation")
+                reply.conversationId = None
+        return reply
+
+    @app.get("/api/conversations")
+    def conversation_list(conn: DB, client_id: Owner) -> models.ConversationList:
+        return conversations.list_for(conn, client_id)
+
+    @app.get("/api/conversations/{conversation_id}")
+    def conversation(conn: DB, client_id: Owner, conversation_id: str) -> models.Conversation:
+        found = conversations.get(conn, client_id, conversation_id)
+        if found is None:
+            raise HTTPException(404, "Conversation not found")
+        return found
+
+    @app.patch("/api/conversations/{conversation_id}")
+    def conversation_rename(
+        conn: DB, client_id: Owner, conversation_id: str, body: models.ConversationRename
+    ) -> models.ConversationSummary:
+        renamed = conversations.rename(conn, client_id, conversation_id, body.title)
+        if renamed is None:
+            raise HTTPException(404, "Conversation not found")
+        return renamed
+
+    @app.delete("/api/conversations/{conversation_id}", status_code=204)
+    def conversation_delete(conn: DB, client_id: Owner, conversation_id: str) -> None:
+        if not conversations.delete(conn, client_id, conversation_id):
+            raise HTTPException(404, "Conversation not found")
 
     @app.post("/api/intro-draft")
     def intro_draft(body: models.IntroDraftRequest) -> models.IntroDraft:

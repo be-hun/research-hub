@@ -38,7 +38,11 @@ when the generated files are stale. This page adds what code can't say: behaviou
 | `GET` | `/api/colleges/{college_id}` | — | `CollegeDashboard` |
 | `GET` | `/api/colleges/{college_id}/projects` | `page`, `kind` (repeatable) | `SearchResponse` |
 | `GET` | `/api/summaries/{kind}/{ref_id}` | — | `AISummary` |
-| `POST` | `/api/assistant` | body: `AssistantRequest` | `AssistantReply` |
+| `POST` | `/api/assistant` | header `X-Client-Id`, body: `AssistantRequest` | `AssistantReply` |
+| `GET` | `/api/conversations` | header `X-Client-Id` | `ConversationList` |
+| `GET` | `/api/conversations/{conversation_id}` | header `X-Client-Id` | `Conversation` |
+| `PATCH` | `/api/conversations/{conversation_id}` | header `X-Client-Id`, body: `ConversationRename` | `ConversationSummary` |
+| `DELETE` | `/api/conversations/{conversation_id}` | header `X-Client-Id` | `—` |
 | `POST` | `/api/intro-draft` | body: `IntroDraftRequest` | `IntroDraft` |
 
 <!-- END GENERATED: endpoints -->
