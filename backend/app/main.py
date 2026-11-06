@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import ai, assistant, compatibility, config, dashboards, explore, models, queries, researchers, summaries
 from app.colleges import COLLEGE_NAMES
-from app.db import Connection, Pool, connect, init_schema
+from app.db import Connection, Pool, connect, ensure_search_extensions, init_schema
 
 
 def create_app(database_url: str | None = None, *, connect_db: bool = True) -> FastAPI:
@@ -24,6 +24,7 @@ def create_app(database_url: str | None = None, *, connect_db: bool = True) -> F
     if connect_db:
         conn = connect(url)
         init_schema(conn)
+        ensure_search_extensions(conn)
         summaries.ensure_table(conn)
         app.state.db = conn  # for setup and tests; requests use the pool
     # Sync endpoints run on a thread pool. Each request borrows one connection and returns it when done, so a

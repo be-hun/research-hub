@@ -4,6 +4,7 @@ The query modules were written against sqlite3, so `Connection` keeps that inter
 `?` placeholders, rows readable by position or column name, and `with conn:` for one transaction.
 """
 
+import logging
 import queue
 import re
 import threading
@@ -25,6 +26,7 @@ _TABLES = re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", SCHEMA.read_text())
 _SQL_TOKEN = re.compile(r"'(?:[^']|'')*'|\?|%")
 # Pooled connections idle longer than this are checked before use; Supabase's pooler drops idle clients.
 _STALE_SECONDS = 60
+log = logging.getLogger(__name__)
 
 
 class Row(tuple):
@@ -175,3 +177,23 @@ def init_schema(conn: Connection) -> None:
         conn.execute(SCHEMA.read_text())
         conn.execute("DELETE FROM schema_meta")
         conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
+
+
+def ensure_search_extensions(conn: Connection) -> bool:
+    """Install pg_trgm and a trigram index on researcher names, for fuzzy people search. True when usable.
+
+    Optional: people search works without it (word-prefix matching only). Not in schema.sql, because a schema change
+    rebuilds every table. On Supabase the extension may land in the `extensions` schema, which is on the search path.
+    """
+    try:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_researchers_name_trgm ON researchers USING gin (name gin_trgm_ops)")
+    except psycopg.Error as exc:
+        log.warning("pg_trgm is unavailable, so people search won't match misspelled names: %s", exc)
+        return False
+    return has_trigrams(conn)
+
+
+def has_trigrams(conn: Connection) -> bool:
+    """Whether pg_trgm's word_similarity() is on this connection's search path."""
+    return bool(conn.execute("SELECT to_regprocedure('word_similarity(text,text)') IS NOT NULL").fetchone()[0])

@@ -4,11 +4,11 @@ A profile lists every record the person is on, including NIH center-grant compon
 their own records with their own source pages. Site-wide totals count parent awards only, so a profile's
 grant count can be higher than the number of grants it adds to a college or topic total.
 """
-
+import re
 
 from app import models
 from app.colleges import COLLEGE_NAMES
-from app.db import Connection, Row
+from app.db import Connection, Row, has_trigrams
 from app.explore import SOURCE_INFO
 from app.queries import KIND_LABELS, _distinctive_terms, _initials, _projects
 from app.topics import BY_ID as TOPICS_BY_ID
@@ -174,16 +174,50 @@ def profile(conn: Connection, researcher_id: str) -> models.ResearcherProfile | 
 
 
 PEOPLE_PAGE_SIZE = 24
+# A misspelled name ("Grace Mah") still finds the person when no name has every word: pg_trgm word similarity.
+TYPO_SIMILARITY = 0.45
+# Name and department as lowercase words, the way query tokens are written, for the exact-name check.
+_NAME_WORDS = "lower(trim(regexp_replace(r.name, '[^a-zA-Z0-9]+', ' ', 'g')))"
+
+
+def _name_query(conn: Connection, tokens: list[str]) -> tuple[str, list, str, list]:
+    """The condition for a query and how to order its matches: (condition, params, ORDER BY prefix, params).
+
+    Every word must start a word of the name or the department, so "Grace Ma" finds "Grace X. Ma" and "ma" never
+    finds "Thomas". The exact name comes first, then with pg_trgm the most similar name (people matched only by
+    department aren't ordered by their name). When no one matches and pg_trgm is installed, names similar to the
+    query match instead ("Grace Mah"), most similar overall first.
+    """
+    text = " ".join(tokens)
+    starts = [rf"\m{t}" for t in tokens]  # tokens are [a-z0-9]+: nothing to escape in a regex
+    cond = " AND ".join(["(r.name ~* ? OR COALESCE(r.department, '') ~* ?)"] * len(tokens))
+    params = [s for s in starts for _ in (0, 1)]
+    exact = f"{_NAME_WORDS} = ? DESC, "
+    if not has_trigrams(conn):
+        return f"({cond})", params, exact, [text]
+    if conn.execute(f"SELECT EXISTS (SELECT 1 FROM researchers r WHERE {cond})", params).fetchone()[0]:
+        by_name = " AND ".join(["r.name ~* ?"] * len(tokens))
+        return (f"({cond})", params, exact + f"CASE WHEN {by_name} THEN word_similarity(?, r.name) ELSE 0 END DESC, ",
+                [text] + starts + [text])
+    return ("word_similarity(?, r.name) > ?", [text, TYPO_SIMILARITY],
+            exact + "word_similarity(?, r.name) + similarity(?, r.name) DESC, ", [text, text, text])
 
 
 def directory(conn: Connection, q: str = "", colleges: list[str] | None = None, kind: str | None = None,
               sort: str = "records", page: int = 1) -> models.PeopleResponse:
-    """People with at least one record. Name/department search is a parameterized LIKE; counts are SQL."""
+    """People with at least one record. Name/department search matches word starts; counts are SQL.
+
+    With a query, the default order is the best name match first: the exact name, then (with pg_trgm) the most
+    similar name, then most records.
+    """
     where, params = ["EXISTS (SELECT 1 FROM project_team t WHERE t.researcher_id = r.id)"], []
     q = q.strip()
-    if q:
-        where.append("(r.name ILIKE ? OR COALESCE(r.department, '') ILIKE ?)")  # case-insensitive, like SQLite's LIKE
-        params += [f"%{q}%", f"%{q}%"]
+    tokens = re.findall(r"[a-z0-9]+", q.lower())
+    rank, rank_params = "", []
+    if tokens:
+        cond, values, rank, rank_params = _name_query(conn, tokens)
+        where.append(cond)
+        params += values
     if kind in KIND_LABELS:
         where.append("EXISTS (SELECT 1 FROM project_team t JOIN projects p ON p.id = t.project_id "
                      "WHERE t.researcher_id = r.id AND p.kind = ?)")
@@ -195,7 +229,9 @@ def directory(conn: Connection, q: str = "", colleges: list[str] | None = None, 
     sql_where = " AND ".join(where)
 
     total = conn.execute(f"SELECT COUNT(*) FROM researchers r WHERE {sql_where}", params).fetchone()[0]
-    order = "lower(r.name), r.id" if sort == "name" else "records DESC, lower(r.name), r.id"
+    order, order_params = rank + "records DESC, lower(r.name), r.id", rank_params
+    if sort == "name":
+        order, order_params = "lower(r.name), r.id", []
     page = max(page, 1)
     rows = conn.execute(f"""
         SELECT r.id, r.name, r.college, r.department, r.identity_confidence,
@@ -205,7 +241,7 @@ def directory(conn: Connection, q: str = "", colleges: list[str] | None = None, 
                COUNT(DISTINCT CASE WHEN p.kind = 'publication' THEN p.id END) AS publications
         FROM researchers r JOIN project_team t ON t.researcher_id = r.id JOIN projects p ON p.id = t.project_id
         WHERE {sql_where} GROUP BY r.id ORDER BY {order} LIMIT ? OFFSET ?
-    """, params + [PEOPLE_PAGE_SIZE, (page - 1) * PEOPLE_PAGE_SIZE]).fetchall()
+    """, params + order_params + [PEOPLE_PAGE_SIZE, (page - 1) * PEOPLE_PAGE_SIZE]).fetchall()
 
     ids = [r["id"] for r in rows]
     topics: dict[str, list[models.TopicRef]] = {i: [] for i in ids}

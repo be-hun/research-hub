@@ -137,6 +137,11 @@ The People directory. Returns `PeopleResponse`: researchers matching `q` (up to 
 `college` (unknown ids are ignored) and `kind`, sorted by `records` (default) or `name`, one page at a time.
 `colleges` gives people per college for the current query, ignoring the college filter.
 
+Each word of `q` must start a word of the person's name or department, in any order: "Grace Ma" and "ma grace" find
+"Grace X. Ma", and "ma" doesn't find "Thomas". With `q` and the default sort, the exact name comes first, then the
+most similar name, then most records. When the backend's Postgres has `pg_trgm` (installed at startup when allowed)
+and no name matches every word, names similar to `q` match instead, so a typo like "Grace Mah" still finds her.
+
 ## `GET /api/researchers/:id/compatibility`
 
 Returns active compatibility matches for a researcher. Matches include only active grants and active clinical
