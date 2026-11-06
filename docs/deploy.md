@@ -66,6 +66,17 @@ uv run python -m app.summaries --kinds topic,college,researcher --min-records 2 
 Set `AI_SUMMARIES=cached` in the service environment after the CLI completes. Requests then use current cached
 summaries and return unavailable rather than calling the model for anything still missing.
 
+## Saved conversations
+
+Saved Ask conversations live in two tables, `conversations` and `conversation_messages`, defined in
+`backend/app/conversations.sql`. The backend creates them automatically at startup if they're missing (on Supabase
+too), so a deploy needs no manual step. They're kept out of `schema.sql`, so imports (`ingest.run`) and schema
+rebuilds after a `SCHEMA_VERSION` bump never touch them. To remove them, and every saved conversation, run:
+
+```sql
+DROP TABLE IF EXISTS conversation_messages, conversations;
+```
+
 ## Roll back
 
 Check out the previous commit on `main`, repeat the deploy steps, and restore the backup taken before the deploy if
