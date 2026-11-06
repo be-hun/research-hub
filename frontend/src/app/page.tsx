@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { Suspense } from "react";
 import AwardRow from "@/components/AwardRow";
 import BarList from "@/components/charts/BarList";
 import ForYou from "@/components/ForYou";
@@ -13,12 +14,40 @@ import { AUDIENCES } from "@/lib/audiences";
 import { COLLEGES } from "@/lib/colleges";
 import { demoProfileInput } from "@/lib/demo";
 import { count, money, shortDate } from "@/lib/format";
+import type { ProfileInput } from "@/lib/types";
 
 const EXAMPLES = ["machine learning", "battery energy storage", "opioid addiction", "Alzheimer's disease"];
 
+/** Demo account: Maya's top matches. Scoring is the slowest call on the page, so it streams in after the rest. */
+async function ForYouStrip({ profile }: { profile: ProfileInput }) {
+  const forYou = await getForYou(profile).catch(() => null);
+  if (!forYou) {
+    return <p className="text-small text-ink-3">Your matches couldn&apos;t be loaded just now. Reload the page to try again.</p>;
+  }
+  return <ForYou data={forYou} limit={3} />;
+}
+
+function ForYouSkeleton() {
+  return (
+    <div className="grid gap-6 lg:grid-cols-3 animate-pulse" aria-busy="true" aria-label="Loading your matches">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="min-w-0">
+          <div className="h-6 w-40 rounded bg-line mb-3" />
+          <div className="bg-canvas border border-line rounded-xl p-4 space-y-3">
+            <div className="h-3 w-24 rounded bg-line" />
+            <div className="h-4 w-11/12 rounded bg-line" />
+            <div className="h-4 w-3/4 rounded bg-line" />
+            <div className="h-3 w-1/2 rounded bg-line" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default async function HomePage() {
   const profile = demoProfileInput();
-  const [o, forYou] = await Promise.all([getOverview(), profile ? getForYou(profile).catch(() => null) : null]);
+  const o = await getOverview();
 
   return (
     <main>
@@ -78,7 +107,7 @@ export default async function HomePage() {
       </section>
 
       {/* Demo account: a compact strip of Maya's matches, under the pitch */}
-      {forYou && (
+      {profile && (
         <section className="bg-surface border-y border-line">
           <div className="max-w-page mx-auto px-4 sm:px-6 py-10">
             <Section
@@ -86,7 +115,9 @@ export default async function HomePage() {
               subtitle="New and active research that shares your interests. Synthetic demo account."
               action={{ href: "/account#for-you", label: "See all and edit interests" }}
             >
-              <ForYou data={forYou} limit={3} />
+              <Suspense fallback={<ForYouSkeleton />}>
+                <ForYouStrip profile={profile} />
+              </Suspense>
             </Section>
           </div>
         </section>
