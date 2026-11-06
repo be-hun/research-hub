@@ -15,7 +15,7 @@ TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql:///research_
 # Set before app.main is imported, since importing it builds the module-level app.
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
-from app import config  # noqa: E402
+from app import config, db  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -25,6 +25,18 @@ def database(monkeypatch):
         admin.execute(f'CREATE SCHEMA "{schema}"')
     url = make_conninfo(TEST_DATABASE_URL, options=f"-c search_path={schema}")
     monkeypatch.setattr(config, "DATABASE_URL", url)
+    # Apps built in a test hold a connection and a pool that nothing closes; close them so a full run stays under
+    # Postgres's max_connections (100 by default locally).
+    opened: list[db.Connection] = []
+    init = db.Connection.__init__
+
+    def tracked(self, raw):
+        init(self, raw)
+        opened.append(self)
+
+    monkeypatch.setattr(db.Connection, "__init__", tracked)
     yield url
+    for conn in opened:
+        conn.raw.close()
     with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as admin:
         admin.execute(f'DROP SCHEMA "{schema}" CASCADE')

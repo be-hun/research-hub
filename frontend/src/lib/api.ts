@@ -3,6 +3,12 @@ import type {
   CollegeSummary,
   DemoResearcherProfile,
   ForYou,
+  Opportunity,
+  OpportunityDetail,
+  OpportunityResearchers,
+  OpportunitySearchResponse,
+  OpportunitySort,
+  OpportunityStatus,
   Overview,
   PeopleMatches,
   PeopleResponse,
@@ -14,6 +20,7 @@ import type {
   ResearcherMatch,
   ResearcherProfile,
   ResearcherCompatibility,
+  ResearcherOpportunity,
   SearchResponse,
   TopicDetail,
   TopicSummary,
@@ -29,6 +36,17 @@ export interface SearchParams {
   topics?: string[];
   kinds?: string[];
   funding?: string[];
+}
+
+export interface OpportunityParams {
+  q?: string;
+  page?: number;
+  agencies?: string[];
+  status?: OpportunityStatus[]; // empty: posted and forecasted
+  categories?: string[];
+  universities?: boolean; // only calls that list a higher-education applicant type
+  closesWithin?: number; // days from today
+  sort?: OpportunitySort; // default "deadline"
 }
 
 export interface PeopleParams {
@@ -120,3 +138,27 @@ export function peopleQueryString(p: PeopleParams): string {
   return qs.toString();
 }
 export const getPeople = (p: PeopleParams) => get<PeopleResponse>(`/api/researchers?${peopleQueryString(p)}`);
+
+export function opportunityQueryString(p: OpportunityParams): string {
+  const qs = new URLSearchParams();
+  if (p.q) qs.set("q", p.q);
+  if (p.page && p.page > 1) qs.set("page", String(p.page));
+  p.agencies?.forEach((a) => qs.append("agency", a));
+  p.status?.forEach((s) => qs.append("status", s));
+  p.categories?.forEach((c) => qs.append("category", c));
+  if (p.universities) qs.set("universities", "true");
+  if (p.closesWithin != null) qs.set("closes_within", String(p.closesWithin));
+  if (p.sort && p.sort !== "deadline") qs.set("sort", p.sort);
+  return qs.toString();
+}
+// Federal funding calls from Grants.gov (see docs/api.md, "Funding opportunities").
+export const searchOpportunities = (p: OpportunityParams) =>
+  get<OpportunitySearchResponse>(`/api/opportunities?${opportunityQueryString(p)}`);
+export const getOpportunity = (id: string) =>
+  getOrNull<OpportunityDetail>(`/api/opportunities/${encodeURIComponent(id)}`);
+export const getOpportunityResearchers = (id: string) =>
+  getOrNull<OpportunityResearchers>(`/api/opportunities/${encodeURIComponent(id)}/researchers`);
+export const getResearcherOpportunities = (id: string) =>
+  get<ResearcherOpportunity[]>(`/api/researchers/${encodeURIComponent(id)}/opportunities`);
+export const getProjectOpportunities = (id: string) =>
+  get<Opportunity[]>(`/api/projects/${encodeURIComponent(id)}/opportunities`);

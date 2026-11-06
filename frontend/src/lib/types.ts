@@ -575,3 +575,96 @@ export interface IntroDraft {
   message: string | null;
   model: string | null;
 }
+
+// ---------- funding opportunities (Grants.gov) ----------
+
+/** posted: open for applications; forecasted: announced but not open yet, so its dates are estimates; closed: past its deadline (kept briefly so links don't break). */
+export type OpportunityStatus = "posted" | "forecasted" | "closed";
+
+export type OpportunitySort = "deadline" | "relevance" | "newest";
+
+export interface ApplicantType {
+  code: string; // Grants.gov applicant-type code, e.g. "06" public/state-controlled higher education, "20" private
+  label: string;
+}
+
+/** A federal funding call (RFP / notice of funding opportunity). An invitation to apply, not an award. */
+export interface Opportunity {
+  id: string; // gg-<Grants.gov opportunity id>
+  number: string; // the agency's call number, e.g. "RFA-CA-27-019"
+  title: string;
+  status: OpportunityStatus;
+  agency: string; // short label used across the site: NIH, NSF, DOD...
+  agencyName: string; // e.g. "National Institutes of Health"
+  postedDate: string | null; // ISO date
+  closeDate: string | null; // ISO date of the application deadline; null when the call gives none
+  closeDateEstimated: boolean; // true for forecasted calls: the agency's estimate
+  closeDateNote: string | null; // the agency's wording when the deadline isn't one date
+  daysLeft: number | null; // whole days from today to closeDate (negative once passed); null without a date
+  awardFloor: number | null; // dollars
+  awardCeiling: number | null; // dollars
+  expectedAwards: number | null;
+  universitiesEligible: boolean; // lists applicant type 06 or 20 (higher education); always check eligibilityText
+  categories: string[]; // funding activity categories, e.g. ["Health"]
+  programs: string[]; // assistance listing numbers, e.g. ["93.393"]
+  source: Source; // the official Grants.gov page
+  updatedAt: string; // when it was fetched from Grants.gov (ISO time)
+}
+
+export interface OpportunityContact {
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+export interface OpportunityDetail extends Opportunity {
+  description: string[]; // the agency's synopsis, verbatim, as paragraphs
+  eligibilityText: string; // the agency's eligibility wording, verbatim ("" when none)
+  applicantTypes: ApplicantType[];
+  fundingInstruments: string[]; // e.g. ["Grant", "Cooperative Agreement"]
+  totalFunding: number | null; // estimated total program funding, dollars
+  costSharing: boolean;
+  archiveDate: string | null; // ISO date Grants.gov removes the call
+  contact: OpportunityContact;
+  pastAwardCount: number; // Temple awards under any of the same assistance listings (parent awards only)
+  pastAwards: Project[]; // the most recent of those, newest first, at most 10
+}
+
+export interface OpportunityFacets {
+  agencies: FacetValue[];
+  status: FacetValue[];
+  categories: FacetValue[];
+}
+
+export interface OpportunitySearchResponse {
+  query: string;
+  total: number;
+  page: number;
+  pageSize: number;
+  sort: OpportunitySort;
+  results: Opportunity[];
+  facets: OpportunityFacets; // counts for the current query and other filters, ignoring each facet's own filter
+}
+
+/** A Temple researcher whose stored records overlap a call. Overlap, not a recommendation or eligibility check. */
+export interface OpportunityResearcher {
+  person: PersonSummary;
+  band: MatchBand;
+  reasons: string[]; // plain-language reasons from stored fields, e.g. "3 grants on cancer informatics"
+  projectIds: string[]; // the records behind the reasons, strongest first
+  awardedUnderProgram: boolean; // has a Temple award under one of the call's assistance listings
+}
+
+export interface OpportunityResearchers {
+  opportunityId: string;
+  researchers: OpportunityResearcher[]; // strongest overlap first, at most 12
+  crossCollege: boolean; // the list spans more than one college
+  notice: string; // what the list does and doesn't mean, for display under it
+}
+
+export interface ResearcherOpportunity {
+  opportunity: Opportunity;
+  band: MatchBand;
+  reasons: string[];
+  projectIds: string[]; // the researcher's records behind the reasons
+}
